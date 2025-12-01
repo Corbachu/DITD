@@ -63,9 +63,11 @@ void GereFrappe(void)
             rangeZv.ZVZ1 = z - range;
             rangeZv.ZVZ2 = z + range;
 
+            #ifdef FITD_DEBUGGER
             if (backgroundMode == backgroundModeEnum_3D) {
                 drawZv(rangeZv);
             }
+            #endif
             
             //drawProjectedBox(rangeZv.ZVX1,rangeZv.ZVX2,rangeZv.ZVY1,rangeZv.ZVY2,rangeZv.ZVZ1,rangeZv.ZVZ2,60,255);
 

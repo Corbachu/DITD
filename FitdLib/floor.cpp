@@ -75,7 +75,8 @@ void LoadEtage(int floorNumber)
         }
         assert(roomData);
 
-        roomDataStruct* currentRoomDataPtr = &roomDataTable.emplace_back();
+        roomDataTable.emplace_back();
+        roomDataStruct* currentRoomDataPtr = &roomDataTable.back();
 
         currentRoomDataPtr->worldX = READ_LE_S16(roomData+4);
         currentRoomDataPtr->worldY = READ_LE_S16(roomData+6);
@@ -250,7 +251,8 @@ void LoadEtage(int floorNumber)
 
             for(k=0;k<g_currentFloorCameraData[i].numViewedRooms;k++)
             {
-                cameraViewedRoomStruct* pCurrentCameraViewedRoom = &g_currentFloorCameraData[i].viewedRoomTable.emplace_back();
+                g_currentFloorCameraData[i].viewedRoomTable.emplace_back();
+                cameraViewedRoomStruct* pCurrentCameraViewedRoom = &g_currentFloorCameraData[i].viewedRoomTable.back();
 
                 pCurrentCameraViewedRoom->viewedRoomIdx = READ_LE_U16(currentCameraData+0x00);
                 pCurrentCameraViewedRoom->offsetToMask = READ_LE_U16(currentCameraData+0x02);
@@ -285,7 +287,8 @@ void LoadEtage(int floorNumber)
 
 					for(int k=0; k< numMasks; k++)
 					{
-						cameraMaskStruct* pCurrentCameraMask = &pCurrentCameraViewedRoom->masks.emplace_back();
+                        pCurrentCameraViewedRoom->masks.emplace_back();
+                        cameraMaskStruct* pCurrentCameraMask = &pCurrentCameraViewedRoom->masks.back();
 
 						// for this overlay zone, how many 
 						pCurrentCameraMask->numTestRect = READ_LE_U16(pMaskData);
@@ -295,7 +298,8 @@ void LoadEtage(int floorNumber)
 
 						for(int j=0; j<pCurrentCameraMask->numTestRect; j++)
 						{
-                            rectTestStruct* pCurrentRectTest = &pCurrentCameraMask->rectTests.emplace_back();
+                            pCurrentCameraMask->rectTests.emplace_back();
+                            rectTestStruct* pCurrentRectTest = &pCurrentCameraMask->rectTests.back();
 
 							pCurrentRectTest->zoneX1 = READ_LE_S16(pMaskData);
 							pCurrentRectTest->zoneZ1 = READ_LE_S16(pMaskData+2);
@@ -348,11 +352,13 @@ void LoadEtage(int floorNumber)
                     int numHybrids = READ_LE_U16(pHybridData); pHybridData += 2;
                     pCurrentCameraViewedRoom->hybrids.reserve(numHybrids);
                     for (int i = 0; i < numHybrids; i++) {
-                        auto& hybrid = pCurrentCameraViewedRoom->hybrids.emplace_back();
+                        pCurrentCameraViewedRoom->hybrids.emplace_back();
+                        auto& hybrid = pCurrentCameraViewedRoom->hybrids.back();
                         int numRect = READ_LE_U16(pHybridData); pHybridData += 2;
                         hybrid.rects.reserve(numRect);
                         for (int j = 0; j < numRect; j++) {
-                            auto& rect = hybrid.rects.emplace_back();
+                            hybrid.rects.emplace_back();
+                            auto& rect = hybrid.rects.back();
                             rect.zoneX1 = READ_LE_S16(pHybridData); pHybridData += 2;
                             rect.zoneZ1 = READ_LE_S16(pHybridData); pHybridData += 2;
                             rect.zoneX2 = READ_LE_S16(pHybridData); pHybridData += 2;

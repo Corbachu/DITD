@@ -2,15 +2,37 @@ cmake_minimum_required(VERSION 3.9)
 
 include_directories(
     "."
-    "${THIRD_PARTY}/SDL/include/SDL3"
-    "${THIRD_PARTY}/SDL/include"
-    "${THIRD_PARTY}/imgui"
-    "${THIRD_PARTY}/soloud.cmake/soloud/include"
-    "${THIRD_PARTY}/bgfx.cmake/bgfx/include"
-    "${THIRD_PARTY}/bgfx.cmake/bx/include"
-    "${THIRD_PARTY}/bgfx.cmake/bgfx/3rdparty"
-    "${THIRD_PARTY}/bgfx.cmake/bimg/include"
 )
+
+if(NOT DREAMCAST)
+    include_directories(
+        "${THIRD_PARTY}/SDL/include/SDL3"
+        "${THIRD_PARTY}/SDL/include"
+        "${THIRD_PARTY}/imgui"
+        "${THIRD_PARTY}/soloud.cmake/soloud/include"
+        "${THIRD_PARTY}/bgfx.cmake/bgfx/include"
+        "${THIRD_PARTY}/bgfx.cmake/bx/include"
+        "${THIRD_PARTY}/bgfx.cmake/bgfx/3rdparty"
+        "${THIRD_PARTY}/bgfx.cmake/bimg/include"
+    )
+endif()
+
+if(DREAMCAST)
+    # EPI platform (dreamEDGE utilities) - minimal subset for Dreamcast
+    include_directories(${CMAKE_SOURCE_DIR}/epi)
+    set(EPI_SRCS
+        ${CMAKE_SOURCE_DIR}/epi/memmanager.cc
+        ${CMAKE_SOURCE_DIR}/epi/epi_dreamcast.cc
+    )
+    # Exclude desktop-only sources
+    list(FILTER SRC_ROOT EXCLUDE REGEX ".*/imguiBGFX\\.cpp$")
+    list(FILTER SRC_ROOT EXCLUDE REGEX ".*/osystemSDL\\.cpp$")
+    list(FILTER SRC_ROOT EXCLUDE REGEX ".*/rendererBGFX\\.cpp$")
+    list(FILTER SRC_ROOT EXCLUDE REGEX ".*/shaders/.*\\.cpp$")
+    list(FILTER SRC_ROOT EXCLUDE REGEX ".*/threadCode\\.cpp$")
+    list(FILTER SRC_ROOT EXCLUDE REGEX ".*/osystemAL_adlib\\.cpp$")
+    list(FILTER SRC_ROOT EXCLUDE REGEX ".*/osystemAL_mp3\\.cpp$")
+endif()
 
 IF(${MSVC})
     include_directories("${THIRD_PARTY}/bgfx.cmake/bx/include/compat/msvc")
@@ -28,13 +50,32 @@ file(GLOB_RECURSE SRC_ROOT
 set(SOURCES
  ${SOURCES}
  ${SRC_ROOT}
- "${THIRD_PARTY}/imgui/imgui.cpp"
- "${THIRD_PARTY}/imgui/imgui.h"
- "${THIRD_PARTY}/imgui/imgui_draw.cpp"
- "${THIRD_PARTY}/imgui/imgui_tables.cpp"
- "${THIRD_PARTY}/imgui/imgui_widgets.cpp"
- "${THIRD_PARTY}/imgui/backends/imgui_impl_sdl3.cpp"
 )
+
+if(DREAMCAST)
+    list(FILTER SOURCES EXCLUDE REGEX ".*/imguiBGFX\\.cpp$")
+    list(FILTER SOURCES EXCLUDE REGEX ".*/osystemSDL\\.cpp$")
+    list(FILTER SOURCES EXCLUDE REGEX ".*/rendererBGFX\\.cpp$")
+    list(FILTER SOURCES EXCLUDE REGEX ".*/shaders/.*\\.cpp$")
+    list(FILTER SOURCES EXCLUDE REGEX ".*/threadCode\\.cpp$")
+    list(FILTER SOURCES EXCLUDE REGEX ".*/osystemAL_adlib\\.cpp$")
+    list(FILTER SOURCES EXCLUDE REGEX ".*/osystemAL_mp3\\.cpp$")
+endif()
+
+if(NOT DREAMCAST)
+    list(APPEND SOURCES
+        "${THIRD_PARTY}/imgui/imgui.cpp"
+        "${THIRD_PARTY}/imgui/imgui.h"
+        "${THIRD_PARTY}/imgui/imgui_draw.cpp"
+        "${THIRD_PARTY}/imgui/imgui_tables.cpp"
+        "${THIRD_PARTY}/imgui/imgui_widgets.cpp"
+        "${THIRD_PARTY}/imgui/backends/imgui_impl_sdl3.cpp"
+    )
+endif()
+
+if(DREAMCAST)
+    list(APPEND SOURCES ${EPI_SRCS})
+endif()
 
 function(assign_source_group)
     foreach(_source IN ITEMS ${ARGN})
@@ -63,6 +104,7 @@ macro(addShaderProgramPermutation vsname psname varyingname)
     #)
 endmacro()
 
+if(NOT DREAMCAST)
 macro(addShaderProgram vsname psname varyingname)
 
     set(SOURCES
@@ -84,6 +126,7 @@ addShaderProgram(flat_vs flat_ps flat.varying.def)
 addShaderProgram(noise_vs noise_ps noise.varying.def)
 addShaderProgram(ramp_vs ramp_ps ramp.varying.def)
 addShaderProgram(sphere_vs sphere_ps sphere.varying.def)
+endif()
 
 assign_source_group(${SOURCES})
 

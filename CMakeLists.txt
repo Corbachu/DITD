@@ -11,21 +11,32 @@ ENDIF(MSVC)
 
 set(THIRD_PARTY "${CMAKE_SOURCE_DIR}/ThirdParty")
 
-set(BGFX_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
-set(BGFX_INSTALL OFF CACHE BOOL "" FORCE)
-add_subdirectory( ${THIRD_PARTY}/bgfx.cmake )
+# Detect Dreamcast toolchain
+if(CMAKE_SYSTEM_NAME STREQUAL "Dreamcast")
+    set(DREAMCAST TRUE)
+    add_compile_definitions(DREAMCAST)
+    add_compile_options(-O3 -ffast-math -fno-exceptions -fno-rtti)
+endif()
 
-add_subdirectory( ${THIRD_PARTY}/soloud.cmake )
+if(NOT DREAMCAST)
+    set(BGFX_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+    set(BGFX_INSTALL OFF CACHE BOOL "" FORCE)
+    add_subdirectory( ${THIRD_PARTY}/bgfx.cmake )
 
-set(SDL_SHARED OFF CACHE BOOL "" FORCE)
-set(SDL_STATIC ON CACHE BOOL "" FORCE)
-add_subdirectory( ${THIRD_PARTY}/SDL )
+    add_subdirectory( ${THIRD_PARTY}/soloud.cmake )
+
+    set(SDL_SHARED OFF CACHE BOOL "" FORCE)
+    set(SDL_STATIC ON CACHE BOOL "" FORCE)
+    add_subdirectory( ${THIRD_PARTY}/SDL )
+endif()
 
 set(SKIP_INSTALL_ALL on)
 set(ZLIB_LIBRARY zlibstatic)
 # Don't build zlib tests
 set(ZLIB_TESTS OFF CACHE BOOL "Build zlib tests")
-add_subdirectory(${THIRD_PARTY}/zlib ${CMAKE_BINARY_DIR}/zlib/zlib-build)
+if(NOT DREAMCAST)
+    add_subdirectory(${THIRD_PARTY}/zlib ${CMAKE_BINARY_DIR}/zlib/zlib-build)
+endif()
 
 
 add_subdirectory( FitdLib )

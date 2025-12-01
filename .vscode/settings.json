@@ -1,0 +1,41 @@
+{
+    "C_Cpp.default.includePath": [
+        "/opt/toolchains/dc/sh-elf/sh-elf/include/**",
+        "/opt/toolchains/dc/kos/include/**",
+        "/opt/toolchains/dc/kos/kernel/arch/dreamcast/include/**",
+        "/opt/toolchains/dc/kos/addons/include/**",
+        "/opt/toolchains/dc/kos-ports/**",
+        "${workspaceFolder}/**"
+    ],
+    "C_Cpp.default.defines": [
+            "_arch_dreamcast"
+    ],
+    "C_Cpp.default.compilerPath": "/opt/toolchains/dc/sh-elf/bin/sh-elf-gcc",
+    "C_Cpp.default.cStandard": "c99",
+    "C_Cpp.default.cppStandard": "c++11",
+    "C_Cpp.default.intelliSenseMode": "gcc-x64",
+    // Align defaults with c_cpp_properties and trim duplication (keep if you want workspace-wide fallback)
+
+    "terminal.integrated.defaultProfile.linux": "kos-bash",
+    "terminal.integrated.profiles.linux": {
+        "kos-bash": {
+            "path": "/usr/bin/bash",
+            "args": ["--init-file", "${workspaceFolder}/.vscode/kos_environ.sh" ],
+            "overrideName": true
+        }
+    },
+    "terminal.integrated.shellIntegration.enabled": true,
+    "terminal.integrated.shellIntegration.suggestEnabled": true,
+    "terminal.integrated.shellIntegration.decorationsEnabled": true,
+    "terminal.integrated.enablePersistentSessions": true,
+    "terminal.integrated.commandsToSkipShell": [
+        ""
+    ],
+    "files.associations": {
+        "random": "cpp",
+        "cmath": "cpp",
+        "complex": "cpp",
+        "list": "cpp",
+        "functional": "cpp"
+    }
+}

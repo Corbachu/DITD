@@ -88,7 +88,7 @@ int getCVarsIdx(int);
 
 //////////////////
 
-#if !AITD_UE4
+#if !AITD_UE4 && !defined(DREAMCAST)
 typedef unsigned char uint8;
 typedef unsigned short uint16;
 typedef unsigned long uint32;

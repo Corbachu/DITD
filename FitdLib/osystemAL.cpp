@@ -1,3 +1,6 @@
+#ifdef DREAMCAST
+// Dreamcast build: disable Soloud/OpenAL-based audio layer.
+#else
 #include <stdlib.h>
 #include <assert.h>
 
@@ -146,3 +149,5 @@ int osystem_playTrack(int trackId)
 
     return 0;
 }
+
+#endif // DREAMCAST

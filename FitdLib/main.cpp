@@ -12,26 +12,54 @@
 
 #include <time.h>
 
-#ifndef AITD_UE4
+#if !defined(AITD_UE4) && !defined(DREAMCAST)
 #include "bgfxGlue.h"
 #include <bgfx/bgfx.h>
 #endif
 
 #include <array>
+#if !defined(DREAMCAST)
 #include <filesystem>
+#endif
 
 extern "C" {
 	extern char homePath[512];
 }
 
+#if defined(DREAMCAST)
 FILE* Open(const char* filename, const char* mode) {
-    std::filesystem::path path = std::filesystem::path(homePath) / filename;
-    return fopen(path.string().c_str(), mode);
+	char fullpath[1024];
+	size_t len = 0;
+	if (homePath[0] != '\0') {
+		len = strlen(homePath);
+		if (len > sizeof(fullpath) - 1) len = sizeof(fullpath) - 1;
+		strncpy(fullpath, homePath, sizeof(fullpath) - 1);
+		fullpath[sizeof(fullpath) - 1] = '\0';
+		if (len > 0 && fullpath[len - 1] != '/' && fullpath[len - 1] != '\\') {
+			fullpath[len++] = '/';
+			fullpath[len] = '\0';
+		}
+	}
+	strncat(fullpath, filename, sizeof(fullpath) - len - 1);
+	return fopen(fullpath, mode);
 }
+#else
+FILE* Open(const char* filename, const char* mode) {
+	std::filesystem::path path = std::filesystem::path(homePath) / filename;
+	return fopen(path.string().c_str(), mode);
+}
+#endif
 
 int AntiRebond;
 
 int* currentCVarTable = NULL;
+
+bool fileExists(const char* name)
+{
+	FILE* f = Open(name, "rb");
+	if (f) { fclose(f); return true; }
+	return false;
+}
 
 int getCVarsIdx(enumCVars searchedType) // TODO: optimize by reversing the table....
 {
@@ -1368,7 +1396,8 @@ void loadMask(int cameraIdx)
         g_maskBuffers[i].reserve(pRoomView->masks.size());
 		for(int j=0; j<pRoomView->masks.size(); j++)
 		{
-            sMaskStruct* pDestMask = &g_maskBuffers[i].emplace_back();
+			g_maskBuffers[i].emplace_back();
+			sMaskStruct* pDestMask = &g_maskBuffers[i].back();
 			unsigned char* pMaskData = pViewedRoomMask + READ_LE_U32(pViewedRoomMask + j*4);
 
             pDestMask->mask.fill(0);
@@ -4169,7 +4198,7 @@ void detectGame(void)
 		currentCVarTable = AITD1KnownCVars;
 
 		printf("Detected Alone in the Dark\n");
-#ifndef AITD_UE4
+#if !defined(AITD_UE4) && !defined(DREAMCAST)
         SDL_SetWindowTitle(gWindowBGFX, "Alone in the Dark");
 #endif
 		return;
@@ -4181,7 +4210,7 @@ void detectGame(void)
 		currentCVarTable = AITD2KnownCVars;
 
 		printf("Detected Jack in the Dark\n");
-#ifndef AITD_UE4
+#if !defined(AITD_UE4) && !defined(DREAMCAST)
         SDL_SetWindowTitle(gWindowBGFX, "Jack in the Dark");
 #endif
 		return;
@@ -4193,7 +4222,7 @@ void detectGame(void)
 		currentCVarTable = AITD2KnownCVars;
 
 		printf("Detected Alone in the Dark 2\n");
-#ifndef AITD_UE4
+#if !defined(AITD_UE4) && !defined(DREAMCAST)
         SDL_SetWindowTitle(gWindowBGFX, "Alone in the Dark 2");
 #endif
 		return;
@@ -4205,7 +4234,7 @@ void detectGame(void)
 		currentCVarTable = AITD2KnownCVars;
 
 		printf("Detected Alone in the Dark 3\n");
-#ifndef AITD_UE4
+#if !defined(AITD_UE4) && !defined(DREAMCAST)
         SDL_SetWindowTitle(gWindowBGFX, "Alone in the Dark 3");
 #endif
 		return;
@@ -4217,7 +4246,7 @@ void detectGame(void)
 		currentCVarTable = AITD2KnownCVars; // TODO: figure this
 
 		printf("Detected Time Gate\n");
-#ifndef AITD_UE4
+#if !defined(AITD_UE4) && !defined(DREAMCAST)
         SDL_SetWindowTitle(gWindowBGFX, "Time Gate");
 #endif
 		return;
@@ -4234,8 +4263,8 @@ extern "C" {
 
 int FitdMain(int argc, char* argv[])
 {
-#ifndef AITD_UE4
-    initBgfxGlue(argc, argv);
+#if !defined(AITD_UE4) && !defined(DREAMCAST)
+	initBgfxGlue(argc, argv);
 #endif
 
 	osystem_startOfFrame();

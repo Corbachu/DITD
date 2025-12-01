@@ -14,10 +14,6 @@
 
 #endif
 
-#define byte char
-//#ifndef bool
-//#define bool char
-//#endif
 #define u8 unsigned char
 #define true 1
 #define false 0
@@ -48,10 +44,10 @@
 	void osystem_initBuffer();
 	void osystem_initVideoBuffer(char *buffer, int width, int height);
 	void osystem_putpixel(int x, int y, int pixel);
-	void osystem_setColor(byte i, byte R, byte G, byte B);
-	void osystem_setPalette(unsigned byte * palette);
+	void osystem_setColor(unsigned char i, unsigned char R, unsigned char G, unsigned char B);
+	void osystem_setPalette(unsigned char * palette);
     void osystem_setPalette(palette_t* palette);
-	void osystem_setPalette320x200(byte * palette);
+	void osystem_setPalette320x200(unsigned char * palette);
 	void osystem_flip(unsigned char *videoBuffer);
 	void osystem_draw320x200BufferToScreen(unsigned char *videoBuffer);
 	void osystem_CopyBlockPhys(unsigned char* videoBuffer, int left, int top, int right, int bottom);

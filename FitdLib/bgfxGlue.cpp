@@ -1,3 +1,6 @@
+#ifdef DREAMCAST
+// Dreamcast build: BGFX glue disabled.
+#else
 #include <SDL.h>
 #include <bgfx/bgfx.h>
 #include <bx/platform.h>
@@ -182,3 +185,4 @@ void deleteBgfxGlue()
 {
     imguiDestroy();
 }
+#endif // DREAMCAST

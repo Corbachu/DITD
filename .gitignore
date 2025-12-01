@@ -1,4 +1,43 @@
 /build/vs2019
+/build/build-dc
 /FitdLib/shaders/generated
-build
-data
+build/
+build-*/
+cmake-build-*/
+out/
+
+# CMake & Ninja
+CMakeCache.txt
+CMakeFiles/
+*.ninja
+.ninja_* 
+compile_commands.json
+
+# Objects & libs
+*.o
+*.obj
+*.a
+*.so
+*.dll
+*.dylib
+*.d
+
+# Dreamcast outputs
+*.elf
+*.bin
+*.map
+*.lst
+1ST_READ.BIN
+IP.BIN
+*.cdi
+*.iso
+*.nrg
+*.gdi
+romdisk.*
+romdisk.img
+
+# Generated shader/artifact bins
+FitdLib/shaders/*.bin*
+
+# Local data assets
+data/

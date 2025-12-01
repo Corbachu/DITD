@@ -1,5 +1,10 @@
 #include "common.h"
 
+#ifdef DREAMCAST
+// Dreamcast build: SDL backend disabled.
+// This file is excluded at compile-time for DREAMCAST.
+#else
+
 /***************************************************************************
 mainSDL.cpp  -  description
 -------------------
@@ -291,6 +296,10 @@ void osystem_init()  // that's the constructor of the system dependent
 
 int posInStream = 0;
 volatile bool deviceStatus = false;
+
+
+
+#endif // DREAMCAST
 
 
 

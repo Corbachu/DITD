@@ -44,6 +44,13 @@
 #undef USE_IMGUI
 #endif
 
+#ifdef DREAMCAST
+#undef USE_IMGUI
+#undef FITD_DEBUGGER
+#undef USE_SDL
+#undef USE_OPENGL_3_2
+#endif
+
 #ifdef MACOSX
 #define UNIX
 #endif

@@ -46,7 +46,8 @@ void sHybrid::readSprites(uint8_t* buffer, int size) {
         else {
             spriteSize = size - (READ_LE_U32(buffer + i * 4) - 2);
         }
-        sprites.emplace_back().read(data, spriteSize);
+        sprites.emplace_back();
+        sprites.back().read(data, spriteSize);
     }
 }
 
@@ -56,14 +57,16 @@ void sHybrid::readEntites(uint8_t* buffer, int size) {
     for (int i = 0; i < count; i++) {
         uint8_t* data = buffer + READ_LE_U32(buffer + i * 4);
         
-        auto& entity = entities.emplace_back();
+        entities.emplace_back();
+        auto& entity = entities.back();
         entity.flags = READ_LE_U16(data); data+=2;
 
         int numEntities = (entity.flags >> 8) & 0xFF;
 
         entity.parts.reserve(numEntities);
         for (int j = 0; j < numEntities; j++) {
-            auto& part = entity.parts.emplace_back();
+            entity.parts.emplace_back();
+            auto& part = entity.parts.back();
 
             part.id = READ_LE_U8(data); data++;
             part.nbpt = READ_LE_U8(data); data++;
@@ -84,12 +87,14 @@ void sHybrid::readAnimations(uint8_t* buffer, int size) {
     animations.reserve(count);
     for (int i = 0; i < count; i++) {
         uint8_t* animStart = buffer + READ_LE_U32(buffer + i * 4);
-        auto& anim = animations.emplace_back();
+        animations.emplace_back();
+        auto& anim = animations.back();
         anim.flag = READ_LE_U8(animStart); animStart++;
         anim.count = READ_LE_U8(animStart); animStart++;
         anim.anims.reserve(anim.count);
         for (int j = 0; j < anim.count; j++) {
-            auto& animation = anim.anims.emplace_back();
+            anim.anims.emplace_back();
+            auto& animation = anim.anims.back();
             animation.id = READ_LE_U16(animStart); animStart += 2;
             animation.flag = READ_LE_U16(animStart); animStart += 2;
             animation.deltaX = READ_LE_S16(animStart); animStart += 2;

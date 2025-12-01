@@ -8,11 +8,13 @@ void sHybrid_Sprite::read(uint8_t* buffer, int bufferSize) {
 
     lines.reserve(dy);
     for (int i = 0; i < dy; i++) {
-        auto& line = lines.emplace_back();
+        lines.emplace_back();
+        auto& line = lines.back();
         int numBlocks = READ_LE_U8(buffer); buffer++;
         line.blocks.reserve(numBlocks);
         for (int j = 0; j < numBlocks; j++) {
-            auto& block = line.blocks.emplace_back();
+            line.blocks.emplace_back();
+            auto& block = line.blocks.back();
             block.unk0 = READ_LE_U8(buffer); buffer++;
             block.numWords = READ_LE_U8(buffer); buffer++;
             block.numBytes = READ_LE_U8(buffer); buffer++;

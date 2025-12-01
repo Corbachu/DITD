@@ -1,5 +1,9 @@
 #include "common.h"
 
+#ifdef DREAMCAST
+// Dreamcast build: BGFX renderer disabled.
+#else
+
 /***************************************************************************
 mainSDL.cpp  -  description
 -------------------
@@ -1364,3 +1368,5 @@ void osystem_drawMask(int roomId, int maskId)
     bgfx::setTexture(0, maskTextureUniform, maskTextures[roomId][maskId].maskTexture);
     bgfx::submit(gameViewId, getMaskBackgroundShader());
 }
+
+#endif // DREAMCAST

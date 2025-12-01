@@ -1,0 +1,14 @@
+set(CMAKE_SYSTEM_NAME Generic)
+set(CMAKE_SYSTEM_PROCESSOR sh4)
+
+set(CMAKE_PREFIX_PATH{PATH} /home/cora/Projects/Dreamcast/KOS/kallistios)
+set($ENV{PATH} ${KOS_BASE}/include)
+
+set(tools /opt/toolchains/dc/sh-elf)
+set(CMAKE_C_COMPILER ${tools}/bin/sh-elf-gcc)
+set(CMAKE_CXX_COMPILER ${tools}/bin/sh-elf-g++)
+
+set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)
+set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)
+set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)
+set(CMAKE_FIND_ROOT_PATH_MODE_PACKAGE ONLY)

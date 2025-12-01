@@ -1,0 +1,32 @@
+{
+    "configurations": [
+        {
+            "name": "Dreamcast",
+            "includePath": [
+                "/opt/toolchains/dc/sh-elf/sh-elf/include/**",
+                "/opt/toolchains/dc/kos/include/**",
+                "/opt/toolchains/dc/kos/kernel/arch/dreamcast/include/**",
+                "/opt/toolchains/dc/kos/addons/include/**",
+                "/opt/toolchains/dc/kos/addons/GLdc/include/**",
+                "/opt/toolchains/dc/kos-ports/**",
+                "/home/cora/dreamdark/DITD/**"
+            ],
+            "intelliSenseMode": "gcc-x64",
+            "compilerPath": "/opt/toolchains/dc/sh-elf/bin/sh-elf-gcc",
+            "cStandard": "c99",
+            "cppStandard": "c++11",
+            "defines": [
+                "_arch_dreamcast",
+                "DREAMCAST=1"
+            ],
+            // Removed undocumented keys (mergeConfigurations, recursiveIncludes)
+            "browse": {
+                "limitSymbolsToIncludedHeaders": true,
+                "path": [
+                    "/home/cora/dreamdark/DITD"
+                ]
+            }
+        }
+    ],
+    "version": 4
+}

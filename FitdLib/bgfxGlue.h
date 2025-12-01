@@ -1,5 +1,6 @@
 #pragma once
 
+#ifndef DREAMCAST
 #include <SDL.h>
 
 int initBgfxGlue(int argc, char* argv[]);
@@ -12,4 +13,5 @@ extern int gFrameLimit;
 extern bool gCloseApp;
 
 extern SDL_Window* gWindowBGFX;
+#endif
 

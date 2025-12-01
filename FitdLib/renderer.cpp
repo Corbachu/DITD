@@ -472,7 +472,8 @@ int AnimNuage(int x,int y,int z,int alpha,int beta,int gamma, sBody* pBody)
             }
             else
             {
-                float transformedX = ((X * cameraFovX) / Z) + cameraCenterX;
+                const float invZ = 1.0f / Z;
+                float transformedX = (X * cameraFovX * invZ) + cameraCenterX;
                 float transformedY;
 
                 *(outPtr2++) = transformedX;
@@ -483,7 +484,7 @@ int AnimNuage(int x,int y,int z,int alpha,int beta,int gamma, sBody* pBody)
                 if(transformedX > BBox3D3)
                     BBox3D3 = (int)transformedX;
 
-                transformedY = ((Y * cameraFovY) / Z) + cameraCenterY;
+                transformedY = (Y * cameraFovY * invZ) + cameraCenterY;
 
                 *(outPtr2++) = transformedY;
 
@@ -553,30 +554,30 @@ int RotateNuage(int x,int y,int z,int alpha,int beta,int gamma, sBody* pBody)
         if(!noModelRotation)
         {
 			// Y rotation
-			{
-				float tempX = X;
-				float tempZ = Z;
-
-				X = (((modelSinBeta * tempX) - (modelCosBeta * tempZ))/65536.f)*2.f;
-				Z = (((modelCosBeta * tempX) + (modelSinBeta * tempZ))/65536.f)*2.f;
-			}
+            {
+                float tempX = X;
+                float tempZ = Z;
+                const float k = 1.0f/32768.0f; // 2/65536
+                X = (((modelSinBeta * tempX) - (modelCosBeta * tempZ)) * k);
+                Z = (((modelCosBeta * tempX) + (modelSinBeta * tempZ)) * k);
+            }
 
 			// Z rotation
             {
                 float tempX = X;
                 float tempY = Y;
-
-                X = (((modelSinGamma * tempX) - (modelCosGamma * tempY))/65536.f)*2.f;
-                Y = (((modelCosGamma * tempX) + (modelSinGamma * tempY))/65536.f)*2.f;
+                const float k = 1.0f/32768.0f; // 2/65536
+                X = (((modelSinGamma * tempX) - (modelCosGamma * tempY)) * k);
+                Y = (((modelCosGamma * tempX) + (modelSinGamma * tempY)) * k);
             }
 
 			// X rotation
             {
                 float tempY = Y;
                 float tempZ = Z;
-
-                Y = (((modelSinAlpha * tempY) - (modelCosAlpha * tempZ))/65536.f)*2.f;
-                Z = (((modelCosAlpha * tempY) + (modelSinAlpha * tempZ))/65536.f)*2.f;
+                const float k = 1.0f/32768.0f; // 2/65536
+                Y = (((modelSinAlpha * tempY) - (modelCosAlpha * tempZ)) * k);
+                Z = (((modelCosAlpha * tempY) + (modelSinAlpha * tempZ)) * k);
             }
         }
 
@@ -606,7 +607,10 @@ int RotateNuage(int x,int y,int z,int alpha,int beta,int gamma, sBody* pBody)
 
             Z += cameraPerspective;
 
-            transformedX = ((X * cameraFovX) / Z) + cameraCenterX;
+            {
+                const float invZ = 1.0f / Z;
+                transformedX = (X * cameraFovX * invZ) + cameraCenterX;
+            }
 
             *(outPtr++) = transformedX;
 
@@ -616,7 +620,7 @@ int RotateNuage(int x,int y,int z,int alpha,int beta,int gamma, sBody* pBody)
             if(transformedX > BBox3D3)
                 BBox3D3 = (int)transformedX;
 
-            transformedY = ((Y * cameraFovY) / Z) + cameraCenterY;
+            transformedY = (Y * cameraFovY * (1.0f / Z)) + cameraCenterY;
 
             *(outPtr++) = transformedY;
 
@@ -864,7 +868,8 @@ void renderPoly(primEntryStruct* pEntry) // poly
 void renderZixel(primEntryStruct* pEntry) // point
 {
     static float pointSize = 20.f;
-    float transformedSize = ((pointSize * (float)cameraFovX) / (float)(pEntry->vertices[0].Z+cameraPerspective));
+    const float invZp = 1.0f / (float)(pEntry->vertices[0].Z + cameraPerspective);
+    float transformedSize = (pointSize * (float)cameraFovX) * invZp;
 
     osystem_drawPoint(pEntry->vertices[0].X,pEntry->vertices[0].Y,pEntry->vertices[0].Z,pEntry->color,pEntry->material, transformedSize);
 }
@@ -885,7 +890,10 @@ void renderSphere(primEntryStruct* pEntry) // sphere
 {
     float transformedSize;
 
-    transformedSize = (((float)pEntry->size * (float)cameraFovX) / (float)(pEntry->vertices[0].Z+cameraPerspective));
+    {
+        const float invZp = 1.0f / (float)(pEntry->vertices[0].Z + cameraPerspective);
+        transformedSize = ((float)pEntry->size * (float)cameraFovX) * invZp;
+    }
 
     osystem_drawSphere(pEntry->vertices[0].X,pEntry->vertices[0].Y,pEntry->vertices[0].Z,pEntry->color, pEntry->material, transformedSize);
 }

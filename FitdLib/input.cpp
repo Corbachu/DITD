@@ -1,4 +1,17 @@
 #include "common.h"
+
+#ifdef DREAMCAST
+
+void readKeyboard(void)
+{
+    // TODO: Map Dreamcast controller via maple; for now, no input.
+    JoyD = 0;
+    Click = 0;
+    key = 0;
+}
+
+#else
+
 #include <SDL.h>
 #include <backends/imgui_impl_sdl3.h>
 
@@ -19,6 +32,9 @@ void handleKeyDown(SDL_Event& event)
     }
 }
 
+#endif // DREAMCAST
+
+#ifndef DREAMCAST
 void readKeyboard(void)
 {
     SDL_Event event;
@@ -152,3 +168,4 @@ void readKeyboard(void)
     }
 #endif
 }
+#endif // !DREAMCAST
