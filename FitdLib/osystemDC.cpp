@@ -12,15 +12,19 @@
 #include <GL/gl.h>
 #include <GL/glkos.h>
 
-// Optional: start scaffolding for a native PVR paletted path (PAL8)
+// Start building a native PVR paletted path (PAL8)
 // Enable with -DUSE_PVR_PAL8 to switch from GLdc blit to PVR renderer.
 #ifdef USE_PVR_PAL8
 #include <dc/pvr.h>
 static bool g_pvrInited = false;
-static pvr_ptr_t g_pal8Texture = nullptr; // 320x200 PAL8 twiddled texture target
-// Note: Full implementation will setup a polygon context and submit a textured quad each frame.
-//       Palette upload will use pvr_set_pal_format(...) and per-entry palette setters.
-//       For now this block scaffolds the path without altering GLdc default.
+static pvr_ptr_t g_pal8Texture = nullptr;
+static constexpr int TEX_W = 512; // PVR requires power-of-two
+static constexpr int TEX_H = 256;
+static float g_uMax = 320.0f / (float)TEX_W;
+static float g_vMax = 200.0f / (float)TEX_H;
+static std::vector<u8> g_pal8Buffer(TEX_W * TEX_H, 0);
+static pvr_poly_cxt_t g_pvrCxt;
+static pvr_poly_hdr_t g_pvrHdr;
 #endif
 
 static GLuint g_backgroundTex = 0;
@@ -62,12 +66,13 @@ void osystem_init()
 #ifdef USE_PVR_PAL8
     if (!g_pvrInited)
     {
-        // Minimal PVR init; real path will create a scene and polygon context
         pvr_init_defaults();
-        // TODO: Choose palette format to match engine colors (e.g., PVR_PAL_ARGB1555 or PVR_PAL_RGB565)
-        // pvr_set_pal_format(PVR_PAL_ARGB1555);
-        // Allocate VRAM for 320x200 PAL8 twiddled texture (size is 320*200 bytes twiddled)
-        // g_pal8Texture = pvr_mem_malloc(320 * 200);
+        pvr_set_pal_format(PVR_PAL_ARGB1555);
+        g_pal8Texture = pvr_mem_malloc(TEX_W * TEX_H);
+        pvr_poly_cxt_txr(&g_pvrCxt, PVR_LIST_OP_POLY,
+                         PVR_TXRFMT_PAL8BPP | PVR_TXRFMT_TWIDDLED,
+                         TEX_W, TEX_H, g_pal8Texture, PVR_FILTER_NEAREST);
+        pvr_poly_compile(&g_pvrHdr, &g_pvrCxt);
         g_pvrInited = true;
     }
 #else
@@ -111,14 +116,22 @@ static void uploadComposited()
 {
     // Compose UI over physicalScreen (non-zero UI pixels override)
 #ifdef USE_PVR_PAL8
-    // PAL8 path (scaffold): build a single 8-bit index buffer and (eventually) DMA to PVR texture
-    static std::vector<u8> pal8(320 * 200);
-    for (int i = 0; i < 320 * 200; ++i)
+    // Compose into 512x256 pal8 buffer with padding
+    for (int y = 0; y < 200; ++y)
     {
-        pal8[i] = uiLayer[i] ? uiLayer[i] : physicalScreen[i];
+        u8* dst = g_pal8Buffer.data() + y * TEX_W;
+        const u8* scr = physicalScreen + y * 320;
+        const u8* ui  = uiLayer.data() + y * 320;
+        for (int x = 0; x < 320; ++x)
+        {
+            const u8 u = ui[x];
+            dst[x] = u ? u : scr[x];
+        }
+        // remaining [320..TEX_W) already zeroed or left as is
     }
-    // TODO: pvr_txr_load_ex(pal8.data(), g_pal8Texture, 320, 200, PVR_TXRLOAD_8BPP | PVR_TXRLOAD_TWIDDLED);
-    // Palette upload happens when osystem_setPalette updates g_palette/g_palette565 (convert to PVR format and set entries)
+    // Upload full texture to VRAM (8bpp paletted, twiddled)
+    pvr_txr_load_ex(g_pal8Buffer.data(), g_pal8Texture, TEX_W, TEX_H,
+                    PVR_TXRLOAD_8BPP | PVR_TXRLOAD_TWIDDLED);
 #else
     static std::vector<uint16_t> rgb(320 * 200);
     for (int i = 0; i < 320 * 200; ++i)
@@ -144,13 +157,32 @@ void osystem_endOfFrame()
     uploadComposited();
 
 #ifdef USE_PVR_PAL8
-    // TODO: Submit a PAL8 textured quad using PVR lists
-    // pvr_wait_ready();
-    // pvr_scene_begin();
-    // pvr_list_begin(PVR_LIST_OP_POLY);
-    //   ... set context, specify g_pal8Texture, emit vertices ...
-    // pvr_list_finish();
-    // pvr_scene_finish();
+    // Submit a PAL8 textured quad using PVR lists (triangle strip)
+    pvr_wait_ready();
+    pvr_scene_begin();
+    pvr_list_begin(PVR_LIST_OP_POLY);
+    pvr_prim(&g_pvrHdr, sizeof(g_pvrHdr));
+
+    pvr_vertex_t v;
+    // v0
+    v.flags = PVR_CMD_VERTEX; v.x = 0.0f;   v.y = 0.0f;   v.z = 1.0f;
+    v.u = 0.0f; v.v = 0.0f; v.argb = 0xFFFFFFFF; v.oargb = 0;
+    pvr_prim(&v, sizeof(v));
+    // v1
+    v.flags = PVR_CMD_VERTEX; v.x = 320.0f; v.y = 0.0f;   v.z = 1.0f;
+    v.u = g_uMax; v.v = 0.0f; v.argb = 0xFFFFFFFF; v.oargb = 0;
+    pvr_prim(&v, sizeof(v));
+    // v2
+    v.flags = PVR_CMD_VERTEX; v.x = 0.0f;   v.y = 200.0f; v.z = 1.0f;
+    v.u = 0.0f; v.v = g_vMax; v.argb = 0xFFFFFFFF; v.oargb = 0;
+    pvr_prim(&v, sizeof(v));
+    // v3 (end)
+    v.flags = PVR_CMD_VERTEX_EOL; v.x = 320.0f; v.y = 200.0f; v.z = 1.0f;
+    v.u = g_uMax; v.v = g_vMax; v.argb = 0xFFFFFFFF; v.oargb = 0;
+    pvr_prim(&v, sizeof(v));
+
+    pvr_list_finish();
+    pvr_scene_finish();
 #else
     glClear(GL_COLOR_BUFFER_BIT);
     glLoadIdentity();
@@ -196,8 +228,12 @@ void osystem_setPalette(unsigned char* palette)
         uint16_t B = (b >> 3) & 0x1F;
         g_palette565[i] = (R << 11) | (G << 5) | (B);
 #ifdef USE_PVR_PAL8
-        // TODO: Convert to PVR palette format and upload (e.g., ARGB1555 or RGB565)
-        // pvr_set_pal_entry(i, packed_color);
+        // Upload ARGB1555 palette (alpha forced to 1)
+        uint16_t pr = (r >> 3) & 0x1F;
+        uint16_t pg = (g >> 3) & 0x1F;
+        uint16_t pb = (b >> 3) & 0x1F;
+        uint16_t packed = (1u << 15) | (pr << 10) | (pg << 5) | (pb);
+        pvr_set_pal_entry(i, packed);
 #endif
     }
 }
@@ -214,8 +250,11 @@ void osystem_setPalette(palette_t* palette)
         uint16_t B = (g_palette[i * 3 + 2] >> 3) & 0x1F;
         g_palette565[i] = (R << 11) | (G << 5) | (B);
     #ifdef USE_PVR_PAL8
-        // TODO: Convert to PVR palette format and upload (e.g., ARGB1555 or RGB565)
-        // pvr_set_pal_entry(i, packed_color);
+        uint16_t pr = (g_palette[i * 3 + 0] >> 3) & 0x1F;
+        uint16_t pg = (g_palette[i * 3 + 1] >> 3) & 0x1F;
+        uint16_t pb = (g_palette[i * 3 + 2] >> 3) & 0x1F;
+        uint16_t packed = (1u << 15) | (pr << 10) | (pg << 5) | (pb);
+        pvr_set_pal_entry(i, packed);
     #endif
     }
 }
