@@ -45,7 +45,7 @@ add_executable (Fitd ${SOURCES})
 if(DREAMCAST)
     # Add GLdc build output to linker search path
     if(DEFINED ENV{KOS_BASE})
-        link_directories($ENV{KOS_BASE}/addons/GLdc/dcbuild)
+        target_link_directories(Fitd PRIVATE $ENV{KOS_BASE}/addons/GLdc/dcbuild)
     endif()
     TARGET_LINK_LIBRARIES(Fitd FitdLib GL z ${EXTRA_LIBS})
 else()

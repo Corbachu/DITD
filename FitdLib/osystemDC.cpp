@@ -130,8 +130,16 @@ static void uploadComposited()
         // remaining [320..TEX_W) already zeroed or left as is
     }
     // Upload full texture to VRAM (8bpp paletted, twiddled)
-    pvr_txr_load_ex(g_pal8Buffer.data(), g_pal8Texture, TEX_W, TEX_H,
-                    PVR_TXRLOAD_8BPP | PVR_TXRLOAD_TWIDDLED);
+    uint32_t txrFlags = PVR_TXRLOAD_8BPP;
+    // KOS flag naming differs between versions.
+    // Newer KOS: PVR_TXRLOAD_FMT_TWIDDLED
+    // Older KOS: PVR_TXRLOAD_TWIDDLED
+    #ifdef PVR_TXRLOAD_TWIDDLED
+        txrFlags |= PVR_TXRLOAD_TWIDDLED;
+    #else
+        txrFlags |= PVR_TXRLOAD_FMT_TWIDDLED;
+    #endif
+    pvr_txr_load_ex(g_pal8Buffer.data(), g_pal8Texture, TEX_W, TEX_H, txrFlags);
 #else
     static std::vector<uint16_t> rgb(320 * 200);
     for (int i = 0; i < 320 * 200; ++i)

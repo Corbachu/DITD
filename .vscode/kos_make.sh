@@ -20,7 +20,7 @@ set -u
 # GLdc auto-build (only if source present)
 GLDC_SRC="$KOS_BASE_DIR/addons/GLdc"
 GLDC_BUILD="$GLDC_SRC/dcbuild"
-GLDC_LIB="$GLDC_BUILD/libGLdc.a"
+GLDC_LIB="$GLDC_BUILD/libGL.a"
 GLDC_TOOLCHAIN="$GLDC_SRC/toolchains/Dreamcast.cmake"
 
 if [ -d "$GLDC_SRC" ]; then
@@ -51,3 +51,8 @@ echo "[kos_make] Building target(s) in $BUILD_DIR $*"
 cmake --build "$BUILD_DIR" -- -j"$(nproc || echo 2)" "$@"
 
 echo "[kos_make] Done."
+
+# This file is used as a VS Code task init-file (bash --init-file ...).
+# Exit explicitly so the task terminates cleanly instead of dropping into an
+# interactive prompt where an accidental keypress becomes a command.
+exit 0
