@@ -115,6 +115,13 @@ if CDI_TOOL=$(find_tool cdi4dc ""); then
   :
 fi
 
+MKDCDISC_TOOL=""
+if MKDCDISC_TOOL=$(find_tool mkdcdisc ""); then
+  :
+elif MKDCDISC_TOOL=$(find_kos_util mkdcdisc); then
+  :
+fi
+
 echo "[make_disc] ELF: $ELF_PATH"
 
 # Produce 1ST_READ.BIN
@@ -155,15 +162,31 @@ ISO_OUT="$OUT_DIR/${TITLE}.iso"
 
 echo "[make_disc] ISO: $ISO_OUT"
 
-# Optional: CDI
-if [[ -n "$CDI_TOOL" ]]; then
+# Optional: CDI (prefer mkdcdisc)
+CDI_OUT="$OUT_DIR/${TITLE}.cdi"
+if [[ -n "$MKDCDISC_TOOL" ]]; then
+  echo "[make_disc] Creating CDI (${MKDCDISC_TOOL})"
+
+  # Mark65537/mkdcdisc expects an ELF when using -e/--elf.
+  # Include either the selected game data dir contents, or fall back to the prepared disc dir.
+  MKDCDISC_DATA_SRC="$DISC_DIR"
+  if [[ -n "${DATA_DIR:-}" && -d "$DATA_DIR" ]]; then
+    MKDCDISC_DATA_SRC="$DATA_DIR"
+  fi
+
+  if "$MKDCDISC_TOOL" -v 2 -o "$CDI_OUT" -e "$ELF_PATH" -D "$MKDCDISC_DATA_SRC" -p "$OUT_DIR/IP.BIN" -n "$TITLE" -a "$COMPANY"; then
+    echo "[make_disc] CDI: $CDI_OUT"
+  else
+    echo "[make_disc] WARNING: mkdcdisc failed; skipping CDI." >&2
+  fi
+elif [[ -n "$CDI_TOOL" ]]; then
   echo "[make_disc] Creating CDI (${CDI_TOOL})"
-  "$CDI_TOOL" "$ISO_OUT" "$OUT_DIR/${TITLE}.cdi" || true
-  if [[ -f "$OUT_DIR/${TITLE}.cdi" ]]; then
-    echo "[make_disc] CDI: $OUT_DIR/${TITLE}.cdi"
+  "$CDI_TOOL" "$ISO_OUT" "$CDI_OUT" || true
+  if [[ -f "$CDI_OUT" ]]; then
+    echo "[make_disc] CDI: $CDI_OUT"
   fi
 else
-  echo "[make_disc] Note: cdi4dc not found; skipping CDI output." >&2
+  echo "[make_disc] Note: mkdcdisc/cdi4dc not found; skipping CDI output." >&2
 fi
 
 echo "[make_disc] Done. Output dir: $OUT_DIR"

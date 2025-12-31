@@ -20,7 +20,7 @@
             }
         },
         {
-            "label": "Dreamcast: Make Disc (ISO/CDI)",
+            "label": "Dreamcast: Make Disc (ISO/CDI via mkdcdisc)",
             "type": "process",
             "command": "bash",
             "args": [
@@ -41,7 +41,7 @@
             "label": "Dreamcast: Build + Make Disc",
             "dependsOn": [
                 "Build",
-                "Dreamcast: Make Disc (ISO/CDI)"
+                "Dreamcast: Make Disc (ISO/CDI via mkdcdisc)"
             ],
             "problemMatcher": []
         }
