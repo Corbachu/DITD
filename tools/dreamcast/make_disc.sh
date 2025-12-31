@@ -11,6 +11,7 @@ BUILD_DIR="${BUILD_DIR:-$ROOT_DIR/build-dc}"
 ELF_PATH="${1:-$BUILD_DIR/Fitd/Fitd.elf}"
 TITLE="${DC_TITLE:-FITD}"
 COMPANY="${DC_COMPANY:-HOME BREW}"
+DATA_DIR="${DC_DATA_DIR:-}"
 OUT_DIR="${OUT_DIR:-$BUILD_DIR/dc-disc}"
 DISC_DIR="$OUT_DIR/disc"
 
@@ -23,6 +24,21 @@ if [[ ! -f "$ELF_PATH" ]]; then
 fi
 
 mkdir -p "$DISC_DIR"
+
+# Optionally copy game data (e.g. data/AITD1_CD) into disc root.
+# The engine's Dreamcast pathing is homePath + filename, so disc root should
+# contain the actual game files (PAK/ITD/etc).
+if [[ -n "$DATA_DIR" ]]; then
+  if [[ ! -d "$DATA_DIR" ]]; then
+    echo "[make_disc] ERROR: DC_DATA_DIR is not a directory: $DATA_DIR" >&2
+    exit 1
+  fi
+  echo "[make_disc] Copying game data from: $DATA_DIR"
+  # Copy directory contents into disc root
+  cp -a "$DATA_DIR/." "$DISC_DIR/"
+else
+  echo "[make_disc] Note: set DC_DATA_DIR to include game files on disc (e.g. DC_DATA_DIR=\"$ROOT_DIR/data/AITD1_CD\")." >&2
+fi
 
 # Source KOS environment if available (adds sh-elf-* tools to PATH).
 if [[ -f "$KOS_BASE_DIR/environ.sh" ]]; then

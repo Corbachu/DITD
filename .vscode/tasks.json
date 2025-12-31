@@ -26,6 +26,11 @@
             "args": [
                 "${workspaceFolder}/tools/dreamcast/make_disc.sh"
             ],
+            "options": {
+                "env": {
+                    "DC_DATA_DIR": "${workspaceFolder}/data/AITD1_CD"
+                }
+            },
             "problemMatcher": [],
             "presentation": {
                 "reveal": "always",

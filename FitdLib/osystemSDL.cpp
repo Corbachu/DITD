@@ -77,7 +77,7 @@ void Sound_Quit(void)
 }
 
 extern "C" {
-    char homePath[256] = "";
+    char homePath[512] = "";
     int FitdMain(void* unkused);
 }
 
