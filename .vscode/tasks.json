@@ -18,6 +18,27 @@
                 "reveal": "always",
                 "panel": "shared"
             }
+        },
+        {
+            "label": "Dreamcast: Make Disc (ISO/CDI)",
+            "type": "process",
+            "command": "bash",
+            "args": [
+                "${workspaceFolder}/tools/dreamcast/make_disc.sh"
+            ],
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared"
+            }
+        },
+        {
+            "label": "Dreamcast: Build + Make Disc",
+            "dependsOn": [
+                "Build",
+                "Dreamcast: Make Disc (ISO/CDI)"
+            ],
+            "problemMatcher": []
         }
     ]
 }
