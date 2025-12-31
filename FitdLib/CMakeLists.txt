@@ -20,6 +20,14 @@ endif()
 if(DREAMCAST)
     # EPI platform (dreamEDGE utilities) - minimal subset for Dreamcast
     include_directories(${CMAKE_SOURCE_DIR}/epi)
+
+    # KOS addons: GLdc headers provide <GL/gl.h> and <GL/glkos.h>
+    if(DEFINED ENV{KOS_BASE})
+        include_directories(
+            $ENV{KOS_BASE}/addons/include
+            $ENV{KOS_BASE}/addons/GLdc/include
+        )
+    endif()
     set(EPI_SRCS
         ${CMAKE_SOURCE_DIR}/epi/memmanager.cc
         ${CMAKE_SOURCE_DIR}/epi/epi_dreamcast.cc
