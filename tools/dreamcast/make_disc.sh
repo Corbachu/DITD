@@ -176,11 +176,8 @@ if [[ -n "$MKDCDISC_TOOL" ]]; then
   echo "[make_disc] Creating CDI (${MKDCDISC_TOOL})"
 
   # Mark65537/mkdcdisc expects an ELF when using -e/--elf.
-  # Include either the selected game data dir contents, or fall back to the prepared disc dir.
+  # Always use the prepared disc dir so staged files (e.g. LOADING.PNG) are included.
   MKDCDISC_DATA_SRC="$DISC_DIR"
-  if [[ -n "${DATA_DIR:-}" && -d "$DATA_DIR" ]]; then
-    MKDCDISC_DATA_SRC="$DATA_DIR"
-  fi
 
   if "$MKDCDISC_TOOL" -v 2 -o "$CDI_OUT" -e "$ELF_PATH" -D "$MKDCDISC_DATA_SRC" -p "$OUT_DIR/IP.BIN" -n "$TITLE" -a "$COMPANY"; then
     echo "[make_disc] CDI: $CDI_OUT"

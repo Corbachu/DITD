@@ -138,6 +138,8 @@ int make3dTatou(void)
 
                 //blitScreenTatou();
 
+                osystem_CopyBlockPhys((unsigned char*)frontBuffer,0,0,320,200);
+
                 osystem_stopFrame();
             }
 

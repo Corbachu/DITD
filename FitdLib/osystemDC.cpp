@@ -21,13 +21,19 @@
 #ifdef DREAMCAST
 #include "osystem.h"
 #include "vars.h"
+#include "font.h"
 #include <array>
 #include <vector>
 #include <cstring>
+#include <cstdio>
 
 // GLdc
 #include <GL/gl.h>
 #include <GL/glkos.h>
+
+#include <dc/video.h>
+#include <dc/sound/sound.h>
+#include <dc/sound/sfxmgr.h>
 
 // Start building a native PVR paletted path (PAL8)
 // Enable with -DUSE_PVR_PAL8 to switch from GLdc blit to PVR renderer.
@@ -48,6 +54,38 @@ static GLuint g_backgroundTex = 0;
 static bool g_glInited = false;
 static std::array<u8, 256 * 3> g_palette = {0};
 static std::array<uint16_t, 256> g_palette565 = {0};
+
+static bool g_soundInited = false;
+
+static char g_debugSfxMsg[128] = {0};
+static int g_debugSfxMsgFramesLeft = 0;
+
+static void dc_set_sfx_debug_msg(const char* msg)
+{
+    if (!msg)
+        return;
+
+    std::snprintf(g_debugSfxMsg, sizeof(g_debugSfxMsg), "%s", msg);
+    g_debugSfxMsg[sizeof(g_debugSfxMsg) - 1] = '\0';
+    g_debugSfxMsgFramesLeft = 180; // ~a few seconds at ~25-60fps
+}
+
+static void ensure_sound()
+{
+    if (!g_soundInited)
+    {
+        snd_init();
+        g_soundInited = true;
+    }
+}
+
+static void ensure_fullscreen_viewport()
+{
+    const vid_mode_t* mode = vid_mode;
+    const int vw = mode ? mode->width : 640;
+    const int vh = mode ? mode->height : 480;
+    glViewport(0, 0, vw, vh);
+}
 
 unsigned char frontBuffer[320 * 200] = {0};
 unsigned char physicalScreen[320 * 200] = {0};
@@ -92,6 +130,11 @@ void osystem_init()
     }
 #else
     glKosInit();
+
+    // GLdc doesn't always leave the viewport matching the current video mode.
+    // If it's left at 320x200 (or similar), our 320x200 quad only fills a corner.
+    // Force the viewport to the full screen so the game scales correctly.
+    ensure_fullscreen_viewport();
 
     glMatrixMode(GL_PROJECTION);
     glLoadIdentity();
@@ -176,6 +219,31 @@ u32 osystem_startOfFrame()
 
 void osystem_endOfFrame()
 {
+    // If we had an SFX load/parse failure recently, render a tiny overlay message.
+    // We draw into uiLayer so it goes through the normal 320x200 compositing path.
+    if (g_debugSfxMsgFramesLeft > 0 && g_debugSfxMsg[0] != '\0' && PtrFont)
+    {
+        const int bandH = std::min(200, fontHeight + 2);
+        const int y0 = std::max(0, 200 - bandH);
+
+        for (int y = y0; y < 200; ++y)
+        {
+            unsigned char* row = uiLayer.data() + y * 320;
+            std::memset(row, 0, 320);
+        }
+
+        const int x = 2;
+        const int y = y0 + 1;
+
+        // Shadow + main color for readability with unknown palettes.
+        SetFont(PtrFont, 1);
+        PrintFont(x + 1, y + 1, (char*)logicalScreen, (u8*)g_debugSfxMsg);
+        SetFont(PtrFont, 255);
+        PrintFont(x, y, (char*)logicalScreen, (u8*)g_debugSfxMsg);
+
+        g_debugSfxMsgFramesLeft--;
+    }
+
     // Draw full-screen quad
     uploadComposited();
 
@@ -207,6 +275,7 @@ void osystem_endOfFrame()
     pvr_list_finish();
     pvr_scene_finish();
 #else
+    ensure_fullscreen_viewport();
     glClear(GL_COLOR_BUFFER_BIT);
     glLoadIdentity();
 
@@ -301,8 +370,6 @@ void osystem_initVideoBuffer(char* /*buffer*/, int /*width*/, int /*height*/) {}
 void osystem_putpixel(int /*x*/, int /*y*/, int /*pixel*/) {}
 void osystem_setColor(unsigned char /*i*/, unsigned char /*R*/, unsigned char /*G*/, unsigned char /*B*/) {}
 void osystem_setPalette320x200(unsigned char* /*palette*/) {}
-void osystem_drawText(int, int, char*) {}
-void osystem_drawTextColor(int, int, char*, unsigned char, unsigned char, unsigned char) {}
 void osystem_drawLine(int, int, int, int, unsigned char, unsigned char*) {}
 
 void osystem_createMask(const std::array<u8, 320 * 200>&, int, int, int, int, int, int) {}
@@ -323,6 +390,126 @@ void osystem_flushPendingPrimitives() {}
 
 int osystem_playTrack(int) { return 0; }
 void osystem_playAdlib() {}
-void osystem_playSample(char* /*samplePtr*/, int /*size*/) {}
+void osystem_playSample(char* samplePtr, int size)
+{
+    if (!samplePtr || size <= 0)
+        return;
+
+    ensure_sound();
+
+    // Keep a small cache so we don't keep re-uploading the same SFX into SPU RAM.
+    struct CachedSfx {
+        const void* ptr;
+        int size;
+        sfxhnd_t hnd;
+    };
+    static std::vector<CachedSfx> cache;
+    static constexpr size_t kMaxCached = 48;
+
+    for (auto &e : cache)
+    {
+        if (e.ptr == samplePtr && e.size == size && e.hnd != SFXHND_INVALID)
+        {
+            snd_sfx_play(e.hnd, 255, 128);
+            return;
+        }
+    }
+
+    sfxhnd_t hnd = SFXHND_INVALID;
+
+    if (g_gameId >= TIMEGATE)
+    {
+        // Later titles store samples as WAV; KOS can load WAV-from-memory.
+        hnd = snd_sfx_load_buf(samplePtr);
+        if (hnd == SFXHND_INVALID)
+            dc_set_sfx_debug_msg("SFX load failed (WAV)");
+    }
+    else
+    {
+        // AITD1/2/3 use VOC (Creative Voice). Extract the first audio block.
+        // Header is 26 bytes; first block starts at offset 26.
+        if (size < 32)
+        {
+            dc_set_sfx_debug_msg("SFX parse failed (VOC too small)");
+            return;
+        }
+
+        if ((unsigned char)samplePtr[26] != 1)
+        {
+            dc_set_sfx_debug_msg("SFX parse failed (VOC block!=1)");
+            return;
+        }
+
+        // Block header: [type:1][size:3] (24-bit LE), then block data.
+        const uint32_t blockSize24 = (uint32_t)((unsigned char)samplePtr[27]) |
+                                    ((uint32_t)((unsigned char)samplePtr[28]) << 8) |
+                                    ((uint32_t)((unsigned char)samplePtr[29]) << 16);
+        // For sound data blocks: data contains [freq_div:1][codec:1][samples...]
+        if (blockSize24 < 2)
+        {
+            dc_set_sfx_debug_msg("SFX parse failed (VOC block size)");
+            return;
+        }
+
+        const int sampleBytes = (int)blockSize24 - 2;
+        const unsigned char frequencyDiv = (unsigned char)samplePtr[30];
+        const unsigned char codecId = (unsigned char)samplePtr[31];
+        (void)codecId;
+
+        const char* sampleData = samplePtr + 32;
+        if (32 + sampleBytes > size)
+        {
+            dc_set_sfx_debug_msg("SFX parse failed (VOC bounds)");
+            return;
+        }
+
+        const int sampleRate = 1000000 / (256 - (int)frequencyDiv);
+
+        // KOS requires raw buffers be padded to 32 bytes per channel.
+        size_t paddedLen = (size_t)sampleBytes;
+        paddedLen = (paddedLen + 31u) & ~31u;
+
+        std::vector<char> tmp(paddedLen, 0);
+        std::memcpy(tmp.data(), sampleData, (size_t)sampleBytes);
+
+        hnd = snd_sfx_load_raw_buf(tmp.data(), paddedLen, (uint32_t)sampleRate, 8, 1);
+        if (hnd == SFXHND_INVALID)
+            dc_set_sfx_debug_msg("SFX load failed (raw)");
+    }
+
+    if (hnd == SFXHND_INVALID)
+        return;
+
+    snd_sfx_play(hnd, 255, 128);
+
+    cache.push_back({ samplePtr, size, hnd });
+    if (cache.size() > kMaxCached)
+    {
+        // Evict oldest.
+        snd_sfx_unload(cache.front().hnd);
+        cache.erase(cache.begin());
+    }
+}
+
+void osystem_drawText(int X, int Y, char* text)
+{
+    if (!text || !PtrFont)
+        return;
+    SetFont(PtrFont, 255);
+    PrintFont(X, Y, (char*)logicalScreen, (u8*)text);
+}
+
+void osystem_drawTextColor(int X, int Y, char* text, unsigned char R, unsigned char G, unsigned char B)
+{
+    if (!text || !PtrFont)
+        return;
+
+    // We don't have a reliable RGB->palette mapping here; pick a readable color.
+    const unsigned int lum = (unsigned int)R + (unsigned int)G + (unsigned int)B;
+    const int idx = (lum < 3u * 64u) ? 1 : 255;
+
+    SetFont(PtrFont, idx);
+    PrintFont(X, Y, (char*)logicalScreen, (u8*)text);
+}
 
 #endif // DREAMCAST
