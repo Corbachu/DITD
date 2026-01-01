@@ -47,7 +47,19 @@ echo "[kos_make] Configuring CMake in $BUILD_DIR ..."
 cmake -B "$BUILD_DIR" -S "$PWD" -DCMAKE_TOOLCHAIN_FILE="$PWD/dreamcast.cmake" -DCMAKE_BUILD_TYPE=Release -G "Unix Makefiles"
 
 echo "[kos_make] Building target(s) in $BUILD_DIR $*"
-cmake --build "$BUILD_DIR" -- -j"$(nproc || echo 2)" "$@"
+
+JOBS_DEFAULT="$(nproc || echo 2)"
+JOBS="${WORKSPACE_BUILD_JOBS:-$JOBS_DEFAULT}"
+
+set +e
+cmake --build "$BUILD_DIR" -- -j"$JOBS" "$@"
+BUILD_STATUS=$?
+set -e
+
+if [ "$BUILD_STATUS" -ne 0 ] && [ "$JOBS" != "1" ]; then
+	echo "[kos_make] Build failed with -j$JOBS; retrying with -j1 ..."
+	cmake --build "$BUILD_DIR" -- -j1 "$@"
+fi
 
 echo "[kos_make] Done."
 

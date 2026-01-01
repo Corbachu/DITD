@@ -17,6 +17,8 @@
 //
 //----------------------------------------------------------------------------
 #include "common.h"
+
+#include "fitd_endian_read.h"
 #include "sprite.h"
 
 void sHybrid_Sprite::read(uint8_t* buffer, int bufferSize) {

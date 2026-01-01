@@ -20,6 +20,8 @@
 
 #include "common.h"
 
+#include "fitd_endian_read.h"
+
 #ifdef WIN32
 #include <direct.h>
 #endif
@@ -107,6 +109,9 @@ int LoadPak(const char* name, int index, char* ptr)
     char* lptr;
 
     lptr = loadPak(name,index);
+
+    if(!lptr)
+        return 0;
 
     memcpy(ptr,lptr,getPakSize(name,index));
 
@@ -273,17 +278,39 @@ char* loadPak(const char* name, int index)
 		{
 		case 0:
 			{
-				ptr = (char*)malloc(pakInfo.discSize);
-				fread(ptr,pakInfo.discSize,1,fileHandle);
+                ptr = (char*)malloc(pakInfo.discSize);
+                if(!ptr)
+                {
+                    fclose(fileHandle);
+                    return NULL;
+                }
+                fread(ptr,pakInfo.discSize,1,fileHandle);
 				break;
 			}
 		case 1:
 			{
-				char * compressedDataPtr = (char *) malloc(pakInfo.discSize);
-				fread(compressedDataPtr, pakInfo.discSize, 1, fileHandle);
-				ptr = (char *) malloc(pakInfo.uncompressedSize);
+                char * compressedDataPtr = (char *) malloc(pakInfo.discSize);
+                if(!compressedDataPtr)
+                {
+                    fclose(fileHandle);
+                    return NULL;
+                }
+                fread(compressedDataPtr, pakInfo.discSize, 1, fileHandle);
+                ptr = (char *) malloc(pakInfo.uncompressedSize);
+                if(!ptr)
+                {
+                    free(compressedDataPtr);
+                    fclose(fileHandle);
+                    return NULL;
+                }
 
-                PAK_explode((unsigned char*)compressedDataPtr, (unsigned char*)ptr, pakInfo.discSize, pakInfo.uncompressedSize, pakInfo.info5);
+                if(PAK_explode((unsigned char*)compressedDataPtr, (unsigned char*)ptr, pakInfo.discSize, pakInfo.uncompressedSize, pakInfo.info5) != 0)
+                {
+                    free(compressedDataPtr);
+                    free(ptr);
+                    fclose(fileHandle);
+                    return NULL;
+                }
 
                 free(compressedDataPtr);
                 break;
@@ -291,10 +318,27 @@ char* loadPak(const char* name, int index)
         case 4:
             {
                 char * compressedDataPtr = (char *) malloc(pakInfo.discSize);
+                if(!compressedDataPtr)
+                {
+                    fclose(fileHandle);
+                    return NULL;
+                }
                 fread(compressedDataPtr, pakInfo.discSize, 1, fileHandle);
                 ptr = (char *) malloc(pakInfo.uncompressedSize);
+                if(!ptr)
+                {
+                    free(compressedDataPtr);
+                    fclose(fileHandle);
+                    return NULL;
+                }
 
-                PAK_deflate((unsigned char*)compressedDataPtr, (unsigned char*)ptr, pakInfo.discSize, pakInfo.uncompressedSize);
+                if(PAK_deflate((unsigned char*)compressedDataPtr, (unsigned char*)ptr, pakInfo.discSize, pakInfo.uncompressedSize) != 0)
+                {
+                    free(compressedDataPtr);
+                    free(ptr);
+                    fclose(fileHandle);
+                    return NULL;
+                }
 
                 free(compressedDataPtr);
                 break;

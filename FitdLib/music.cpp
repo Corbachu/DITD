@@ -18,6 +18,8 @@
 //----------------------------------------------------------------------------
 #include "common.h"
 
+#include "fitd_endian_read.h"
+
 bool g_gameUseCDA = false;
 
 int musicVolume = 0x7F;

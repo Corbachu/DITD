@@ -17,6 +17,8 @@
 //
 //----------------------------------------------------------------------------
 #include "common.h"
+
+#include "fitd_endian_read.h"
 #include "hybrid.h"
 
 hqrEntryStruct<sHybrid>* HQ_Hybrides = nullptr;

@@ -38,6 +38,20 @@
             }
         },
         {
+            "label": "Dreamcast: Clean (CMake)",
+            "type": "process",
+            "command": "bash",
+            "args": [
+                "--init-file",
+                "${workspaceFolder}/.vscode/kos_clean.sh"
+            ],
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared"
+            }
+        },
+        {
             "label": "Dreamcast: Build + Make Disc",
             "dependsOn": [
                 "Build",

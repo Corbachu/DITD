@@ -19,6 +19,8 @@
 
 #include "common.h"
 
+#include "fitd_endian_read.h"
+
 u32 g_currentFloorRoomRawDataSize = 0;
 u32 g_currentFloorCameraRawDataSize;
 std::vector<cameraDataStruct> g_currentFloorCameraData;

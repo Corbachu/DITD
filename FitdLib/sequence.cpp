@@ -18,6 +18,8 @@
 //----------------------------------------------------------------------------
 #include "common.h"
 
+#include "fitd_endian_read.h"
+
 const char* sequenceListAITD2[]=
 {
     "BATL",

@@ -78,13 +78,25 @@
 
 #include <stdint.h>
 
-typedef uint8_t u8;
-typedef uint16_t u16;
-typedef uint32_t u32;
+// Prefer EPI's type definitions for core game types.
+// Keep <stdint.h> for third-party code that uses uint*_t directly.
+#include "types.h"
 
-typedef int8_t s8;
-typedef int16_t s16;
-typedef int32_t s32;
+typedef u8_t  u8;
+typedef u16_t u16;
+typedef u32_t u32;
+
+typedef s8_t  s8;
+typedef s16_t s16;
+typedef s32_t s32;
+
+// Legacy aliases used throughout FitdLib.
+typedef u8  U8;
+typedef u16 U16;
+typedef u32 U32;
+typedef s8  S8;
+typedef s16 S16;
+typedef s32 S32;
 
 #include <stdlib.h>
 #include <stdio.h>

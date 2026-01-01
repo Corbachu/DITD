@@ -479,6 +479,9 @@ int PAK_explode_nolit(PAK_stream * pG, PAK_huft * tl, PAK_huft * td, unsigned bl
 
 int PAK_explode(unsigned char * srcBuffer, unsigned char * dstBuffer, unsigned int compressedSize, unsigned int uncompressedSize, unsigned short flags)
 {
+  if(!srcBuffer || !dstBuffer || compressedSize == 0 || uncompressedSize == 0)
+    return -1;
+
   PAK_huft * tb;        /* literal code table */
   PAK_huft * tl;        /* length code table */
   PAK_huft * td;        /* distance code table */
@@ -539,19 +542,35 @@ int PAK_explode(unsigned char * srcBuffer, unsigned char * dstBuffer, unsigned i
 // --------------------------------------------------------------
 
 int PAK_deflate(unsigned char * srcBuffer, unsigned char * dstBuffer, unsigned int compressedSize, unsigned int uncompressedSize) {
+  if(!srcBuffer || !dstBuffer || compressedSize == 0 || uncompressedSize == 0)
+    return -1;
+
   z_stream G;
+  memset(&G, 0, sizeof(G));
   G.next_in = srcBuffer;
   G.avail_in = compressedSize;
   G.next_out = dstBuffer;
   G.avail_out = uncompressedSize;
-  G.zalloc = (alloc_func)0;
-  G.zfree = (free_func)0;
 
-  inflateInit2(&G, -15);
-  inflate(&G, Z_SYNC_FLUSH);
+  int ret = inflateInit2(&G, -15);
+  if(ret != Z_OK)
+    return -2;
+
+  // Inflate until end-of-stream or output buffer full.
+  do {
+    ret = inflate(&G, Z_FINISH);
+  } while (ret == Z_OK);
+
   inflateEnd(&G);
 
-  return(0);
+  if(ret != Z_STREAM_END && ret != Z_BUF_ERROR)
+    return -3;
+
+  // If we hit Z_BUF_ERROR, we ran out of output space; treat as failure.
+  if(ret == Z_BUF_ERROR)
+    return -4;
+
+  return 0;
 }
 
 // --------------------------------------------------------------

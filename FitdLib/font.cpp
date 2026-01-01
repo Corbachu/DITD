@@ -18,6 +18,8 @@
 //----------------------------------------------------------------------------
 #include "common.h"
 
+#include "fitd_endian_read.h"
+
 int fontHeight = 16;
 
 char* fontVar1 = NULL;

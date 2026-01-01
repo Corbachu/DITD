@@ -40,6 +40,14 @@ else
   echo "[make_disc] Note: set DC_DATA_DIR to include game files on disc (e.g. DC_DATA_DIR=\"$ROOT_DIR/data/AITD1_CD\")." >&2
 fi
 
+# Optional: include the loading splash image (PNG) at disc root.
+# The Dreamcast startup splash looks for LOADING.png/LOADING.PNG.
+if [[ -f "$ROOT_DIR/Assets/LOADING.png" ]]; then
+  cp -f "$ROOT_DIR/Assets/LOADING.png" "$DISC_DIR/LOADING.PNG"
+elif [[ -f "$ROOT_DIR/Assets/LOADING.PNG" ]]; then
+  cp -f "$ROOT_DIR/Assets/LOADING.PNG" "$DISC_DIR/LOADING.PNG"
+fi
+
 # Source KOS environment if available (adds sh-elf-* tools to PATH).
 if [[ -f "$KOS_BASE_DIR/environ.sh" ]]; then
   # shellcheck source=/dev/null

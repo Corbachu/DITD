@@ -17,6 +17,8 @@
 //
 //----------------------------------------------------------------------------
 #include "common.h"
+
+#include "fitd_endian_read.h"
 #include "hybrid.h"
 
 template <typename T>

@@ -25,6 +25,12 @@
 // seg002
 
 #include "common.h"
+
+#if defined(DREAMCAST)
+#include "dc_splash.h"
+#endif
+
+#include "fitd_endian_read.h"
 #include "hybrid.h"
 #include "anim2d.h"
 
@@ -4329,6 +4335,8 @@ int FitdMain(int argc, char* argv[])
 {
 #if defined(DREAMCAST)
 	dbgio_printf("[FitdMain] begin\n");
+	osystem_init();
+	dc_show_loading_splash();
 	detectGame();
 	dbgio_printf("[FitdMain] detectGame done (g_gameId=%d, CVars=%d)\n", (int)g_gameId, (int)CVars.size());
 #endif
