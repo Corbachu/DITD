@@ -81,10 +81,10 @@ static void ensure_sound()
 
 static void ensure_fullscreen_viewport()
 {
-    const vid_mode_t* mode = vid_mode;
-    const int vw = mode ? mode->width : 640;
-    const int vh = mode ? mode->height : 480;
-    glViewport(0, 0, vw, vh);
+    // GLdc examples assume a 640x480 render surface.
+    // Using vid_mode->width/height can be 320x240, which causes rendering into
+    // only the top-left quarter in emulators like Flycast.
+    glViewport(0, 0, 640, 480);
 }
 
 unsigned char frontBuffer[320 * 200] = {0};
@@ -471,6 +471,13 @@ void osystem_playSample(char* samplePtr, int size)
 
         std::vector<char> tmp(paddedLen, 0);
         std::memcpy(tmp.data(), sampleData, (size_t)sampleBytes);
+
+        // VOC PCM is unsigned 8-bit. The AICA's 8-bit PCM is treated as signed
+        // in practice; converting avoids the heavy DC offset drunk dick.
+        for (size_t i = 0; i < (size_t)sampleBytes; ++i)
+        {
+            tmp[i] = (char)(((unsigned char)tmp[i]) ^ 0x80);
+        }
 
         hnd = snd_sfx_load_raw_buf(tmp.data(), paddedLen, (uint32_t)sampleRate, 8, 1);
         if (hnd == SFXHND_INVALID)
