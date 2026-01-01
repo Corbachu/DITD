@@ -545,7 +545,7 @@ void FoundObjet(int objIdx, int param)
     int stepzoom = -200;
     ShowBeta = 0;
 
-    memset(frontBuffer, 0, 320 * 200);
+    fitd_memset(frontBuffer, 0, 320 * 200);
     FastCopyScreen(frontBuffer, logicalScreen);
 
     AffBigCadre(160, 100, 240, 120);

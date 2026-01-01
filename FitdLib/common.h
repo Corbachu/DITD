@@ -119,6 +119,8 @@ typedef signed long S32;
 #include "main.h"
 #include "fileAccess.h"
 
+#include "dc_fastmem.h"
+
 #ifdef DREAMCAST
 #include "dc_stdio_shim.h"
 #endif

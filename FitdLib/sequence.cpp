@@ -175,7 +175,7 @@ void playSequence(int sequenceIdx, int fadeStart, int fadeOutVar)
             {
                 palette_t localPalette;
                 copyPalette(logicalScreen, localPalette);  // copy palette
-                memcpy(aux,logicalScreen+0x300,64000);
+                fitd_memcpy(aux, logicalScreen + 0x300, 64000);
                 nextFrame = READ_LE_U16(logicalScreen+64768);
 
                 convertPaletteIfRequired(localPalette);

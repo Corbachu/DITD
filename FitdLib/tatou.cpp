@@ -24,7 +24,7 @@ void blitScreenTatou(void)
 
 void FastCopyScreen(void* source, void* dest)
 {
-	memcpy(dest, source, 64000);
+    fitd_memcpy(dest, source, 64000);
 }
 
 void FadeInPhys(int step,int start)
