@@ -2,7 +2,9 @@
 # See: https://github.com/actions/starter-workflows/blob/main/ci/cmake-single-platform.yml
 name: CMake on multiple platforms
 
-on: [push]
+on:
+  push:
+  workflow_dispatch:
 
 jobs:
   build:
@@ -92,3 +94,30 @@ jobs:
       # Execute tests defined by the CMake configuration. Note that --build-config is needed because the default Windows generator is a multi-config generator (Visual Studio generator).
       # See https://cmake.org/cmake/help/latest/manual/ctest.1.html for more detail
       run: ctest --build-config ${{ matrix.build_type }}
+
+  dreamcast-kos:
+    name: Dreamcast (KOS)
+    # Dreamcast/KOS builds require a preinstalled KOS toolchain (kos-cc, kos-c++) and KOS environment.
+    # This job is intentionally gated behind workflow_dispatch to avoid blocking normal CI.
+    if: ${{ github.event_name == 'workflow_dispatch' }}
+    runs-on: [self-hosted, linux, kos]
+
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        submodules: recursive
+
+    - name: Configure (KOS)
+      shell: bash
+      run: cmake --preset kos-release
+
+    - name: Build (KOS)
+      shell: bash
+      run: cmake --build --preset kos-release --target Fitd
+
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: dreamcast-build
+        path: |
+          build-dc/**/Fitd.elf
