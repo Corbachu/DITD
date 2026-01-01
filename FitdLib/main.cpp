@@ -22,6 +22,15 @@
 #include <filesystem>
 #endif
 
+#if defined(DREAMCAST)
+extern "C" {
+#include <kos/dbgio.h>
+}
+
+#include <cerrno>
+#include <cstring>
+#endif
+
 extern "C" {
 	extern char homePath[512];
 }
@@ -29,19 +38,25 @@ extern "C" {
 #if defined(DREAMCAST)
 FILE* Open(const char* filename, const char* mode) {
 	char fullpath[1024];
-	size_t len = 0;
 	if (homePath[0] != '\0') {
-		len = strlen(homePath);
-		if (len > sizeof(fullpath) - 1) len = sizeof(fullpath) - 1;
-		strncpy(fullpath, homePath, sizeof(fullpath) - 1);
-		fullpath[sizeof(fullpath) - 1] = '\0';
-		if (len > 0 && fullpath[len - 1] != '/' && fullpath[len - 1] != '\\') {
-			fullpath[len++] = '/';
-			fullpath[len] = '\0';
+		snprintf(fullpath, sizeof(fullpath), "%s/%s", homePath, filename);
+	} else {
+		snprintf(fullpath, sizeof(fullpath), "%s", filename);
+	}
+	dbgio_printf("[Open] %s (mode=%s)\n", fullpath, mode);
+	FILE* fp = dc_fopen(fullpath, mode);
+	dbgio_printf("[Open] -> %p\n", (void*)fp);
+	if (!fp)
+	{
+		static int s_openFailCount = 0;
+		if (s_openFailCount < 40)
+		{
+			dbgio_printf("[Open] fopen failed: %s (mode=%s) errno=%d (%s)\n",
+						 fullpath, mode, errno, std::strerror(errno));
+			s_openFailCount++;
 		}
 	}
-	strncat(fullpath, filename, sizeof(fullpath) - len - 1);
-	return fopen(fullpath, mode);
+	return fp;
 }
 #else
 FILE* Open(const char* filename, const char* mode) {
@@ -56,7 +71,14 @@ int* currentCVarTable = NULL;
 
 bool fileExists(const char* name)
 {
+	#if defined(DREAMCAST)
+	dbgio_printf("[fileExists] %s\n", name);
+	#endif
+
 	FILE* f = Open(name, "rb");
+	#if defined(DREAMCAST)
+	dbgio_printf("[fileExists] %s -> %s\n", name, f ? "YES" : "NO");
+	#endif
 	if (f) { fclose(f); return true; }
 	return false;
 }
@@ -4197,7 +4219,11 @@ void detectGame(void)
         CVars.resize(45);
 		currentCVarTable = AITD1KnownCVars;
 
+		#if defined(DREAMCAST)
+		dbgio_printf("[detectGame] Detected Alone in the Dark\n");
+		#else
 		printf("Detected Alone in the Dark\n");
+		#endif
 #if !defined(AITD_UE4) && !defined(DREAMCAST)
         SDL_SetWindowTitle(gWindowBGFX, "Alone in the Dark");
 #endif
@@ -4209,7 +4235,11 @@ void detectGame(void)
         CVars.resize(70);
 		currentCVarTable = AITD2KnownCVars;
 
+		#if defined(DREAMCAST)
+		dbgio_printf("[detectGame] Detected Jack in the Dark\n");
+		#else
 		printf("Detected Jack in the Dark\n");
+		#endif
 #if !defined(AITD_UE4) && !defined(DREAMCAST)
         SDL_SetWindowTitle(gWindowBGFX, "Jack in the Dark");
 #endif
@@ -4221,7 +4251,11 @@ void detectGame(void)
         CVars.resize(70);
 		currentCVarTable = AITD2KnownCVars;
 
+		#if defined(DREAMCAST)
+		dbgio_printf("[detectGame] Detected Alone in the Dark 2\n");
+		#else
 		printf("Detected Alone in the Dark 2\n");
+		#endif
 #if !defined(AITD_UE4) && !defined(DREAMCAST)
         SDL_SetWindowTitle(gWindowBGFX, "Alone in the Dark 2");
 #endif
@@ -4233,7 +4267,11 @@ void detectGame(void)
         CVars.resize(70);
 		currentCVarTable = AITD2KnownCVars;
 
+		#if defined(DREAMCAST)
+		dbgio_printf("[detectGame] Detected Alone in the Dark 3\n");
+		#else
 		printf("Detected Alone in the Dark 3\n");
+		#endif
 #if !defined(AITD_UE4) && !defined(DREAMCAST)
         SDL_SetWindowTitle(gWindowBGFX, "Alone in the Dark 3");
 #endif
@@ -4245,14 +4283,22 @@ void detectGame(void)
         CVars.resize(100); // TODO: figure this
 		currentCVarTable = AITD2KnownCVars; // TODO: figure this
 
+		#if defined(DREAMCAST)
+		dbgio_printf("[detectGame] Detected Time Gate\n");
+		#else
 		printf("Detected Time Gate\n");
+		#endif
 #if !defined(AITD_UE4) && !defined(DREAMCAST)
         SDL_SetWindowTitle(gWindowBGFX, "Time Gate");
 #endif
 		return;
 	}
 
+	#if defined(DREAMCAST)
+	dbgio_printf("[detectGame] FATAL: Game detection failed...\n");
+	#else
 	printf("FATAL: Game detection failed...\n");
+	#endif
 	assert(0);
 }
 
@@ -4263,19 +4309,43 @@ extern "C" {
 
 int FitdMain(int argc, char* argv[])
 {
+#if defined(DREAMCAST)
+	dbgio_printf("[FitdMain] begin\n");
+	detectGame();
+	dbgio_printf("[FitdMain] detectGame done (g_gameId=%d, CVars=%d)\n", (int)g_gameId, (int)CVars.size());
+#endif
+
 #if !defined(AITD_UE4) && !defined(DREAMCAST)
 	initBgfxGlue(argc, argv);
 #endif
 
+
+
+
+
+
+
 	osystem_startOfFrame();
+
+#if defined(DREAMCAST)
+	dbgio_printf("[FitdMain] after osystem_startOfFrame\n");
+#endif
 
 	//  int protectionToBeDone = 1;
 
 	OpenProgram();
 
+#if defined(DREAMCAST)
+	dbgio_printf("[FitdMain] after OpenProgram\n");
+#endif
+
 	paletteFill(currentGamePalette,0,0,0);
 
 	loadPalette();
+
+#if defined(DREAMCAST)
+	dbgio_printf("[FitdMain] after loadPalette\n");
+#endif
 	
 	switch(g_gameId)
 	{

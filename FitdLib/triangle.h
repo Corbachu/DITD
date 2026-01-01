@@ -1,6 +1,8 @@
 #ifndef _TRIANGLE_POLYTRY_
 #define _TRIANGLE_POLYTRY_
 
+#include "dc_fastmath.h"
+
 class Vector3F
 {
 public:
@@ -22,7 +24,7 @@ public:
 	                                                         c.m_v[1]= m_v[2] * b.m_v[0] - m_v[0] * b.m_v[2];
 	                                                         c.m_v[2]= m_v[0] * b.m_v[1] - m_v[1] * b.m_v[0]; }
       float       SquaredLenght()               const    {  return Dot(*this);   }
-      float       Lenght()                      const    {  return (float)sqrt(Dot(*this));   }
+      float       Lenght()                      const    {  return fitd_sqrtf(Dot(*this));   }
       //
       float m_v[3];
 };

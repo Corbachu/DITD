@@ -72,6 +72,7 @@ Revision History:
 #include <math.h>
 
 #include "common.h"
+#include "dc_fastmath.h"
 
 #ifndef INLINE
 # ifdef _MSC_VER
@@ -1203,7 +1204,7 @@ static int init_tables(void)
 	for (i=0; i<SIN_LEN; i++)
 	{
 		/* non-standard sinus */
-		m = sin( ((i*2)+1) * PI / SIN_LEN ); /* checked against the real chip */
+		m = fitd_sin( ((i*2)+1) * PI / SIN_LEN ); /* checked against the real chip */
 
 		/* we never reach zero here due to ((i*2)+1) */
 

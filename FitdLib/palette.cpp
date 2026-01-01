@@ -1,6 +1,8 @@
 #include "common.h"
 #include "palette.h"
 
+#include <cstring>
+
 void paletteFill(palette_t& palette, unsigned char r, unsigned char g, unsigned b)
 {
     r <<= 1;
@@ -22,20 +24,12 @@ void setPalette(palette_t& sourcePal)
 
 void copyPalette(palette_t& source, palette_t& dest)
 {
-    for (int i = 0; i < 256; i++)
-    {
-        dest[i] = source[i];
-    }
+    dest = source;
 }
 
 void copyPalette(void* source, palette_t& dest)
 {
-    for (int i = 0; i < 256; i++)
-    {
-        for (int j = 0; j < 3; j++) {
-            dest[i][j] = ((uint8*)source)[i * 3 + j];
-        }
-    }
+    std::memcpy(dest.data(), source, sizeof(palette_t));
 }
 
 void convertPaletteIfRequired(palette_t& lpalette)

@@ -3,7 +3,6 @@
 #ifdef DREAMCAST
 #include "osystem.h"
 #include "vars.h"
-#include "epi.h"
 #include <array>
 #include <vector>
 #include <cstring>
@@ -60,8 +59,6 @@ void osystem_init()
 {
     if (g_glInited)
         return;
-
-    epi::Init();
 
 #ifdef USE_PVR_PAL8
     if (!g_pvrInited)

@@ -118,6 +118,10 @@ typedef signed long S32;
 #include "vars.h"
 #include "main.h"
 #include "fileAccess.h"
+
+#ifdef DREAMCAST
+#include "dc_stdio_shim.h"
+#endif
 #include "screen.h"
 #include "videoMode.h"
 #include "pak.h"

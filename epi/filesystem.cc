@@ -21,6 +21,15 @@
 #include "file.h"
 #include "filesystem.h"
 
+#ifdef DREAMCAST
+extern "C" {
+#include <kos/dbgio.h>
+}
+
+#include <cerrno>
+#include <cstring>
+#endif
+
 #define MAX_MODE_CHARS  32
 
 namespace epi
@@ -64,19 +73,23 @@ bool FS_Access(const char *name, unsigned int flags)
     if (! FS_FlagsToAnsiMode(flags, mode))
         return false;
 
-#ifndef DREAMCAST
-    FILE *fp = fopen(name, mode);
-    if (!fp)
-        return false;
-    fclose(fp);
-    return true;
-#else
-    file_t fp = fs_open(name, O_RDONLY);
-    if (fp < 0)
-        return false;
-    fs_close(fp);
-    return true;
-#endif
+    #ifndef DREAMCAST
+        FILE *fp = fopen(name, mode);
+        if (!fp)
+            return false;
+        fclose(fp);
+        return true;
+    #else
+        (void)mode;
+        file_t fp = fs_open(name, O_RDONLY);
+        if (fp < 0)
+        {
+            dbgio_printf("[FS_Access] fs_open failed: %s\n", name);
+            return false;
+        }
+        fs_close(fp);
+        return true;
+    #endif
 }
 
 file_c* FS_Open(const char *name, unsigned int flags)
@@ -88,16 +101,20 @@ file_c* FS_Open(const char *name, unsigned int flags)
     if (! FS_FlagsToAnsiMode(flags, mode))
         return NULL;
 
-#ifndef DREAMCAST
-    FILE *fp = fopen(name, mode);
-    if (!fp)
-        return NULL;
-#else
-    file_t fh = fs_open(name, flags & file_c::ACCESS_WRITE ? O_WRONLY : O_RDONLY);
-    if (fh < 0)
-        return NULL;
-    FILE *fp = (FILE *)(fh + 1);
-#endif
+    #ifndef DREAMCAST
+        FILE *fp = fopen(name, mode);
+        if (!fp)
+            return NULL;
+    #else
+        (void)mode;
+        file_t fh = fs_open(name, flags & file_c::ACCESS_WRITE ? O_WRONLY : O_RDONLY);
+        if (fh < 0)
+        {
+            dbgio_printf("[FS_Open] fs_open failed: %s\n", name);
+            return NULL;
+        }
+        FILE *fp = (FILE *)(fh + 1);
+    #endif
 
 	return new ansi_file_c(fp);
 }

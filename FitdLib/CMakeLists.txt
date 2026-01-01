@@ -18,9 +18,6 @@ if(NOT DREAMCAST)
 endif()
 
 if(DREAMCAST)
-    # EPI platform (dreamEDGE utilities) - minimal subset for Dreamcast
-    include_directories(${CMAKE_SOURCE_DIR}/epi)
-
     # KOS addons: GLdc headers provide <GL/gl.h> and <GL/glkos.h>
     if(DEFINED ENV{KOS_BASE})
         include_directories(
@@ -28,10 +25,6 @@ if(DREAMCAST)
             $ENV{KOS_BASE}/addons/GLdc/include
         )
     endif()
-    set(EPI_SRCS
-        ${CMAKE_SOURCE_DIR}/epi/memmanager.cc
-        ${CMAKE_SOURCE_DIR}/epi/epi_dreamcast.cc
-    )
     # Exclude desktop-only sources
     list(FILTER SRC_ROOT EXCLUDE REGEX ".*/imguiBGFX\\.cpp$")
     list(FILTER SRC_ROOT EXCLUDE REGEX ".*/osystemSDL\\.cpp$")
@@ -79,10 +72,6 @@ if(NOT DREAMCAST)
         "${THIRD_PARTY}/imgui/imgui_widgets.cpp"
         "${THIRD_PARTY}/imgui/backends/imgui_impl_sdl3.cpp"
     )
-endif()
-
-if(DREAMCAST)
-    list(APPEND SOURCES ${EPI_SRCS})
 endif()
 
 function(assign_source_group)
