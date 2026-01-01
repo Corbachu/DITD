@@ -1,4 +1,8 @@
 {
+    "cmake.useCMakePresets": "always",
+    "cmake.configurePreset": "kos-release",
+    "cmake.buildPreset": "kos-release",
+
     "C_Cpp.default.includePath": [
         "/opt/toolchains/dc/sh-elf/sh-elf/include/**",
         "/opt/toolchains/dc/kos/include/**",

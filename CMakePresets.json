@@ -1,0 +1,27 @@
+{
+  "version": 3,
+  "configurePresets": [
+    {
+      "name": "kos-release",
+      "displayName": "Dreamcast (KOS) Release",
+      "description": "Configure with Dreamcast/KOS toolchain",
+      "generator": "Unix Makefiles",
+      "binaryDir": "${sourceDir}/build-dc",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_TOOLCHAIN_FILE": "${sourceDir}/dreamcast.cmake"
+      },
+      "environment": {
+        "KOS_BASE": "/opt/toolchains/dc/kos",
+        "PATH": "/opt/toolchains/dc/kos/utils/build_wrappers:/opt/toolchains/dc/sh-elf/bin:${env:PATH}"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "kos-release",
+      "displayName": "Build (Dreamcast/KOS)",
+      "configurePreset": "kos-release"
+    }
+  ]
+}
