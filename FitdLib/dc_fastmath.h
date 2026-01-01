@@ -30,11 +30,41 @@ extern "C" {
 }
 #endif
 
+#include <cstdint>
 #include <cmath>
+
+#ifdef DREAMCAST
+static inline uint32_t fitd_fpscr_get() {
+    uint32_t v;
+    asm volatile("sts fpscr, %0" : "=r"(v));
+    return v;
+}
+
+static inline void fitd_fpscr_set(uint32_t v) {
+    asm volatile("lds %0, fpscr" : : "r"(v) : "memory");
+}
+
+static inline uint32_t fitd_fpscr_force_single() {
+    // FPSCR.PR (bit 19): 0=single precision, 1=double precision
+    uint32_t old = fitd_fpscr_get();
+    uint32_t forced = old & ~(1u << 19);
+    if (forced != old) {
+        fitd_fpscr_set(forced);
+    }
+    return old;
+}
+
+static inline void fitd_fpscr_restore(uint32_t old) {
+    fitd_fpscr_set(old);
+}
+#endif
 
 static inline float fitd_sinf(float r) {
 #ifdef DREAMCAST
-    return fsin(r);
+    uint32_t old = fitd_fpscr_force_single();
+    float out = fsin(r);
+    fitd_fpscr_restore(old);
+    return out;
 #else
     return std::sinf(r);
 #endif
@@ -42,7 +72,10 @@ static inline float fitd_sinf(float r) {
 
 static inline float fitd_cosf(float r) {
 #ifdef DREAMCAST
-    return fcos(r);
+    uint32_t old = fitd_fpscr_force_single();
+    float out = fcos(r);
+    fitd_fpscr_restore(old);
+    return out;
 #else
     return std::cosf(r);
 #endif
@@ -50,7 +83,10 @@ static inline float fitd_cosf(float r) {
 
 static inline float fitd_sqrtf(float v) {
 #ifdef DREAMCAST
-    return fsqrt(v);
+    uint32_t old = fitd_fpscr_force_single();
+    float out = fsqrt(v);
+    fitd_fpscr_restore(old);
+    return out;
 #else
     return std::sqrtf(v);
 #endif
@@ -58,7 +94,7 @@ static inline float fitd_sqrtf(float v) {
 
 static inline double fitd_sin(double r) {
 #ifdef DREAMCAST
-    return (double)fsin((float)r);
+    return (double)fitd_sinf((float)r);
 #else
     return std::sin(r);
 #endif
@@ -66,7 +102,7 @@ static inline double fitd_sin(double r) {
 
 static inline double fitd_cos(double r) {
 #ifdef DREAMCAST
-    return (double)fcos((float)r);
+    return (double)fitd_cosf((float)r);
 #else
     return std::cos(r);
 #endif

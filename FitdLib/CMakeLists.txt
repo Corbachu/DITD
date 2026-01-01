@@ -4,6 +4,11 @@ include_directories(
     "."
 )
 
+# Prefer EPI headers (e.g. endianess.h, memshim.h) over similarly-named local files.
+include_directories(BEFORE
+    "${CMAKE_SOURCE_DIR}/epi"
+)
+
 if(NOT DREAMCAST)
     include_directories(
         "${THIRD_PARTY}/SDL/include/SDL3"
@@ -25,6 +30,28 @@ if(DREAMCAST)
             $ENV{KOS_BASE}/addons/GLdc/include
         )
     endif()
+
+    # KOS-ports headers (e.g. zlib, libfastmem). Prefer these over any vendored copies.
+    set(_FITD_KOS_PORTS "")
+    if(DEFINED ENV{KOS_PORTS})
+        set(_FITD_KOS_PORTS "$ENV{KOS_PORTS}")
+    elseif(EXISTS "/opt/toolchains/dc/kos-ports")
+        set(_FITD_KOS_PORTS "/opt/toolchains/dc/kos-ports")
+    endif()
+
+    if(_FITD_KOS_PORTS)
+        if(EXISTS "${_FITD_KOS_PORTS}/include")
+            include_directories(BEFORE SYSTEM "${_FITD_KOS_PORTS}/include")
+        endif()
+
+        # Some setups keep per-port headers under kos-ports/<port>/include.
+        if(EXISTS "${_FITD_KOS_PORTS}/zlib/include")
+            include_directories(BEFORE SYSTEM "${_FITD_KOS_PORTS}/zlib/include")
+        elseif(EXISTS "${_FITD_KOS_PORTS}/zlib")
+            include_directories(BEFORE SYSTEM "${_FITD_KOS_PORTS}/zlib")
+        endif()
+    endif()
+
     # Exclude desktop-only sources
     list(FILTER SRC_ROOT EXCLUDE REGEX ".*/imguiBGFX\\.cpp$")
     list(FILTER SRC_ROOT EXCLUDE REGEX ".*/osystemSDL\\.cpp$")
