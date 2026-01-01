@@ -69,7 +69,7 @@ extern "C" FILE* dc_fopen(const char* path, const char* mode) {
     int oflags = flags_from_mode(mode);
 
     // Trace file open attempts (keep it short; this runs a lot).
-    dbgio_printf("[dc_fopen] %s mode=%s oflags=0x%x\n", path, mode ? mode : "(null)", oflags);
+    //dbgio_printf("[dc_fopen] %s mode=%s oflags=0x%x\n", path, mode ? mode : "(null)", oflags);
 
     // On Dreamcast we primarily load data from /cd. Some environments have
     // brittle cwd/relative-path behavior, so for read-only opens we fall back
@@ -79,13 +79,13 @@ extern "C" FILE* dc_fopen(const char* path, const char* mode) {
     if (!wants_write && path[0] != '/') {
         char cd_path[1024];
         snprintf(cd_path, sizeof(cd_path), "/cd/%s", path);
-        dbgio_printf("[dc_fopen] -> try %s\n", cd_path);
+        //dbgio_printf("[dc_fopen] -> try %s\n", cd_path);
         fh = fs_open(cd_path, oflags);
     }
     if (fh < 0) {
         fh = fs_open(path, oflags);
     }
-    dbgio_printf("[dc_fopen] fs_open -> %d\n", (int)fh);
+    //dbgio_printf("[dc_fopen] fs_open -> %d\n", (int)fh);
     if (fh < 0) {
         // errno isn't reliably set by fs_open.
         errno = ENOENT;
