@@ -13,7 +13,7 @@
       },
       "environment": {
         "KOS_BASE": "/opt/toolchains/dc/kos",
-        "PATH": "/opt/toolchains/dc/kos/utils/build_wrappers:/opt/toolchains/dc/sh-elf/bin:${env:PATH}"
+        "PATH": "/opt/toolchains/dc/kos/utils/build_wrappers:/opt/toolchains/dc/sh-elf/bin:${penv:PATH}"
       }
     }
   ],
