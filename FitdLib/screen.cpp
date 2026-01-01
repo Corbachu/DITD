@@ -22,7 +22,18 @@
 
 void setupScreen(void)
 {
+    // Dreamcast: avoid depending on heap availability/fragmentation for a core framebuffer.
+    // A NULL logicalScreen later causes writes to address 0 (Boot ROM region).
+#if defined(DREAMCAST)
+    static unsigned char logicalScreenStatic[64800];
+    logicalScreen = (char*)logicalScreenStatic;
+#else
     logicalScreen = (char*)malloc(64800);
+    if (!logicalScreen)
+    {
+        fatalError(1, "logicalScreen");
+    }
+#endif
 
     screenBufferSize = 64800;
 
