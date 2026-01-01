@@ -20,6 +20,9 @@
 
 #include "osystem.h"
 
+#include <array>
+#include <vector>
+
 enum gameTypeEnum
 {
     AITD1,
@@ -522,7 +525,8 @@ struct sGroupState
     s16 m_type; // 0
     point3dStruct m_delta; // 2
     // (AITD2+) if Info_optimise
-    std::optional<point3dStruct> m_rotateDelta; // 8
+    bool m_hasRotateDelta;
+    point3dStruct m_rotateDelta; // valid only when m_hasRotateDelta is true
     // 8 / 0x10
 };
 
@@ -580,7 +584,7 @@ struct sBody
     struct sFrame* startAnim = nullptr; // This is normally stored as 4 bytes at the beginning of scratchBuffer, but we store it here due to pointer size
     std::vector<u8> m_scratchBuffer; //0xE size u16 + data
     std::vector<point3dStruct> m_vertices; // size u16 count * 6
-    std::vector<uint16> m_groupOrder; // size u16 * 2
+    std::vector<u16> m_groupOrder; // size u16 * 2
     std::vector<sGroup> m_groups; // size u16 
     std::vector<sPrimitive> m_primitives;
 };

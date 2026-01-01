@@ -161,11 +161,13 @@ sAnimation* createAnimationFromPtr(void* ptr, int size)
             pGroup->m_delta.y = READ_LE_S16(animPtr); animPtr += 2;
             pGroup->m_delta.z = READ_LE_S16(animPtr); animPtr += 2;
             if (bUseOptim) {
-                pGroup->m_rotateDelta.emplace();
-                pGroup->m_rotateDelta.value().x = READ_LE_S16(animPtr); animPtr += 2;
-                pGroup->m_rotateDelta.value().y = READ_LE_S16(animPtr); animPtr += 2;
-                pGroup->m_rotateDelta.value().z = READ_LE_S16(animPtr); animPtr += 2;
+                pGroup->m_hasRotateDelta = true;
+                pGroup->m_rotateDelta.x = READ_LE_S16(animPtr); animPtr += 2;
+                pGroup->m_rotateDelta.y = READ_LE_S16(animPtr); animPtr += 2;
+                pGroup->m_rotateDelta.z = READ_LE_S16(animPtr); animPtr += 2;
                 animPtr += 2;
+            } else {
+                pGroup->m_hasRotateDelta = false;
             }
         }
     }
@@ -236,10 +238,10 @@ sBody* createBodyFromPtr(void* ptr)
                 newBody->m_groups[i].m_state.m_delta.x = READ_LE_S16(bodyBuffer); bodyBuffer += 2;
                 newBody->m_groups[i].m_state.m_delta.y = READ_LE_S16(bodyBuffer); bodyBuffer += 2;
                 newBody->m_groups[i].m_state.m_delta.z = READ_LE_S16(bodyBuffer); bodyBuffer += 2;
-                newBody->m_groups[i].m_state.m_rotateDelta.emplace();
-                newBody->m_groups[i].m_state.m_rotateDelta.value().x = READ_LE_S16(bodyBuffer); bodyBuffer += 2;
-                newBody->m_groups[i].m_state.m_rotateDelta.value().y = READ_LE_S16(bodyBuffer); bodyBuffer += 2;
-                newBody->m_groups[i].m_state.m_rotateDelta.value().z = READ_LE_S16(bodyBuffer); bodyBuffer += 2;
+                newBody->m_groups[i].m_state.m_hasRotateDelta = true;
+                newBody->m_groups[i].m_state.m_rotateDelta.x = READ_LE_S16(bodyBuffer); bodyBuffer += 2;
+                newBody->m_groups[i].m_state.m_rotateDelta.y = READ_LE_S16(bodyBuffer); bodyBuffer += 2;
+                newBody->m_groups[i].m_state.m_rotateDelta.z = READ_LE_S16(bodyBuffer); bodyBuffer += 2;
                 bodyBuffer += 2;
             }
         }
@@ -264,6 +266,7 @@ sBody* createBodyFromPtr(void* ptr)
                 newBody->m_groups[i].m_state.m_delta.x = READ_LE_S16(bodyBuffer); bodyBuffer += 2;
                 newBody->m_groups[i].m_state.m_delta.y = READ_LE_S16(bodyBuffer); bodyBuffer += 2;
                 newBody->m_groups[i].m_state.m_delta.z = READ_LE_S16(bodyBuffer); bodyBuffer += 2;
+                newBody->m_groups[i].m_state.m_hasRotateDelta = false;
             }
         }
 

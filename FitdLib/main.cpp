@@ -4334,9 +4334,9 @@ extern "C" {
 int FitdMain(int argc, char* argv[])
 {
 #if defined(DREAMCAST)
-	dbgio_printf("[FitdMain] begin\n");
+	dbgio_printf("[FitdMain] Dream in the Dark STARTUP\n");
 	osystem_init();
-	dc_show_loading_splash();
+	//dc_show_loading_splash();
 	detectGame();
 	dbgio_printf("[FitdMain] detectGame done (g_gameId=%d, CVars=%d)\n", (int)g_gameId, (int)CVars.size());
 #endif

@@ -34,6 +34,8 @@ extern "C" {
 #include <GL/gl.h>
 #include <GL/glkos.h>
 
+#include <dc/video.h>
+
 #include "dc_splash.h"
 
 #include "stb_image.h"
@@ -173,8 +175,24 @@ void dc_show_loading_splash()
 
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, W, H, 0, GL_RGB, GL_UNSIGNED_SHORT_5_6_5, rgb565.data());
 
-    glClear(GL_COLOR_BUFFER_BIT);
+    // Establish a known-good 2D state for the splash.
+    if (vid_mode)
+        glViewport(0, 0, vid_mode->width, vid_mode->height);
+
+    glDisable(GL_DEPTH_TEST);
+    glDisable(GL_CULL_FACE);
+    glDisable(GL_LIGHTING);
+    glDisable(GL_SCISSOR_TEST);
+    glEnable(GL_TEXTURE_2D);
+
+    glMatrixMode(GL_PROJECTION);
     glLoadIdentity();
+    glOrtho(0.0f, 320.0f, 200.0f, 0.0f, -1.0f, 1.0f);
+
+    glMatrixMode(GL_MODELVIEW);
+    glLoadIdentity();
+
+    glClear(GL_COLOR_BUFFER_BIT);
 
     glBegin(GL_TRIANGLE_STRIP);
     glTexCoord2f(0.f, 0.f); glVertex3f(0.f,   0.f,   0.f);
@@ -190,6 +208,16 @@ void dc_show_loading_splash()
     vid_waitvbl();
 
     glDeleteTextures(1, &tex);
+
+    // Restore the game's expected 2D state so we don't leave GLdc matrices/modes
+    // in a surprising configuration.
+    if (vid_mode)
+        glViewport(0, 0, vid_mode->width, vid_mode->height);
+    glMatrixMode(GL_PROJECTION);
+    glLoadIdentity();
+    glOrtho(0.0f, 320.0f, 200.0f, 0.0f, -1.0f, 1.0f);
+    glMatrixMode(GL_MODELVIEW);
+    glLoadIdentity();
 
     (void)used;
 }

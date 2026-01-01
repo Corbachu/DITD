@@ -35,6 +35,9 @@
 #include <dc/sound/sound.h>
 #include <dc/sound/sfxmgr.h>
 
+#include <dc/maple.h>
+#include <dc/maple/controller.h>
+
 // Start building a native PVR paletted path (PAL8)
 // Enable with -DUSE_PVR_PAL8 to switch from GLdc blit to PVR renderer.
 #ifdef USE_PVR_PAL8
@@ -50,12 +53,18 @@ static pvr_poly_cxt_t g_pvrCxt;
 static pvr_poly_hdr_t g_pvrHdr;
 #endif
 
+#ifndef USE_PVR_PAL8
 static GLuint g_backgroundTex = 0;
+#endif
 static bool g_glInited = false;
 static std::array<u8, 256 * 3> g_palette = {0};
 static std::array<uint16_t, 256> g_palette565 = {0};
 
 static bool g_soundInited = false;
+
+static bool g_renderDebugHud = true;
+static uint32_t g_renderDebugPrevButtons = 0;
+static int g_renderDebugCableType = -1;
 
 static char g_debugSfxMsg[128] = {0};
 static int g_debugSfxMsgFramesLeft = 0;
@@ -79,18 +88,93 @@ static void ensure_sound()
     }
 }
 
+[[maybe_unused]] static void dc_force_fullframe_scanout_if_needed(int cable)
+{
+    // KOS built-in VGA modes intentionally center the bitmap window within the
+    // scan area (e.g. bmp 172,40). Force a full-frame bitmap + border window 
+    // so the output fills the actual viewport.
+    if (cable != CT_VGA)
+        return;
+
+    if (!vid_mode)
+        return;
+
+    if (vid_mode->width != 640 || vid_mode->height != 480)
+        return;
+
+    vid_mode_t mode = *vid_mode;
+
+    mode.bitmapx = 0;
+    mode.bitmapy = 0;
+
+    // Expand border window to full scanout area.
+    // These values are in scan timing units (clocks/scanlines), not framebuffer pixels.
+    if (mode.clocks > 0)
+    {
+        mode.borderx1 = 0;
+        mode.borderx2 = mode.clocks - 1;
+    }
+
+    if (mode.scanlines > 0)
+    {
+        mode.bordery1 = 0;
+        mode.bordery2 = mode.scanlines - 1;
+    }
+
+    // Apply updated scanout/window parameters.
+    vid_set_mode_ex(&mode);
+}
+
+#ifndef USE_PVR_PAL8
 static void ensure_fullscreen_viewport()
 {
-    // GLdc examples assume a 640x480 render surface.
-    // Using vid_mode->width/height can be 320x240, which causes rendering into
-    // only the top-left quarter in emulators like Flycast.
-    glViewport(0, 0, 640, 480);
+    // GLdc's glViewport math depends on GetVideoMode()->height (backed by KOS
+    // vid_mode->height). Always match the current KOS video mode to avoid
+    // incorrect scaling/offset.
+    if (vid_mode)
+        glViewport(0, 0, vid_mode->width, vid_mode->height);
+    else
+        glViewport(0, 0, 640, 480);
 }
+
+static void dc_force_fullscreen_scissor()
+{
+    // GLdc's scissor implementation emits a PVR tile-clip command only when
+    // GL_SCISSOR_TEST is enabled. If any earlier code enabled scissor and set
+    // a small clip, then later disabled scissor, the last tile-clip can
+    // effectively "stick" on hardware/emulators. Force a full-screen clip.
+    int vw = 640;
+    int vh = 480;
+    if (vid_mode)
+    {
+        vw = vid_mode->width;
+        vh = vid_mode->height;
+    }
+
+    glEnable(GL_SCISSOR_TEST);
+    glScissor(0, 0, vw, vh);
+}
+
+static void ensure_game_ortho()
+{
+    ensure_fullscreen_viewport();
+
+    glMatrixMode(GL_PROJECTION);
+    glLoadIdentity();
+    glOrtho(0.0f, 320.0f, 200.0f, 0.0f, -1.0f, 1.0f);
+
+    glMatrixMode(GL_MODELVIEW);
+    glLoadIdentity();
+
+    dc_force_fullscreen_scissor();
+}
+#endif
 
 unsigned char frontBuffer[320 * 200] = {0};
 unsigned char physicalScreen[320 * 200] = {0};
 std::array<unsigned char, 320 * 200> uiLayer = {0};
 
+#ifndef USE_PVR_PAL8
 static void ensureTexture()
 {
     if (!g_backgroundTex)
@@ -110,11 +194,27 @@ static void ensureTexture()
         glBindTexture(GL_TEXTURE_2D, g_backgroundTex);
     }
 }
+#endif
 
 void osystem_init()
 {
     if (g_glInited)
         return;
+
+    // Pick a deterministic video mode early.
+    // NOTE: KOS built-in VGA modes intentionally center the bitmap window.
+    // Some emulators show the unused border as large black bars, so we can
+    // optionally force a full-frame scanout.
+    const int cable = vid_check_cable();
+    g_renderDebugCableType = cable;
+
+    // Use the explicit VGA timing/mode for 640x480.
+    if (cable == CT_VGA || cable < 0)
+        vid_set_mode(DM_640x480_VGA, PM_RGB565);
+    else
+        vid_set_mode(DM_320x240, PM_RGB565);
+
+    dc_force_fullframe_scanout_if_needed(cable);
 
 #ifdef USE_PVR_PAL8
     if (!g_pvrInited)
@@ -148,6 +248,9 @@ void osystem_init()
     glEnable(GL_TEXTURE_2D);
     glDisable(GL_CULL_FACE);
     glDisable(GL_LIGHTING);
+
+    // Ensure the PVR tile-clip covers the full screen from the start.
+    dc_force_fullscreen_scissor();
 
     ensureTexture();
 #endif
@@ -219,6 +322,73 @@ u32 osystem_startOfFrame()
 
 void osystem_endOfFrame()
 {
+    // Keep cable type diagnostic live for HUD.
+    g_renderDebugCableType = vid_check_cable();
+
+    // Toggle render debug HUD with START+Y (edge-triggered).
+    {
+        maple_device_t* cont = maple_enum_type(0, MAPLE_FUNC_CONTROLLER);
+        if (cont)
+        {
+            const cont_state_t* state = (const cont_state_t*)maple_dev_status(cont);
+            const uint32_t buttons = state ? state->buttons : 0;
+            const bool startDown = (buttons & CONT_START) != 0;
+            const bool yDown = (buttons & CONT_Y) != 0;
+            const bool prevStartDown = (g_renderDebugPrevButtons & CONT_START) != 0;
+            const bool prevYDown = (g_renderDebugPrevButtons & CONT_Y) != 0;
+
+            if (startDown && yDown && !(prevStartDown && prevYDown))
+                g_renderDebugHud = !g_renderDebugHud;
+
+            g_renderDebugPrevButtons = buttons;
+        }
+    }
+
+    // Render debug HUD into uiLayer (top-left) so it uses the normal 320x200 path.
+    if (g_renderDebugHud && PtrFont)
+    {
+        const int lines = 2;
+        const int bandH = std::min(200, lines * (fontHeight + 1) + 2);
+        for (int y = 0; y < bandH; ++y)
+        {
+            unsigned char* row = uiLayer.data() + y * 320;
+            std::memset(row, 0, 320);
+        }
+
+        int vw = 0, vh = 0;
+        int bx = 0, by = 0;
+        int bxl = 0, bxr = 0, byt = 0, byb = 0;
+        if (vid_mode)
+        {
+            vw = vid_mode->width;
+            vh = vid_mode->height;
+            bx = vid_mode->bitmapx;
+            by = vid_mode->bitmapy;
+            bxl = vid_mode->borderx1;
+            bxr = vid_mode->borderx2;
+            byt = vid_mode->bordery1;
+            byb = vid_mode->bordery2;
+        }
+
+        const int scissorEnabled = glIsEnabled(GL_SCISSOR_TEST) ? 1 : 0;
+
+        char line1[96];
+        char line2[96];
+        std::snprintf(line1, sizeof(line1), "vid:%dx%d bmp:%d,%d bdr:%d-%d,%d-%d cable:%d",
+                      vw, vh, bx, by, bxl, bxr, byt, byb, g_renderDebugCableType);
+        std::snprintf(line2, sizeof(line2), "scissor:%d (forced full) vp:%dx%d",
+                      scissorEnabled, vw, vh);
+
+        const int x = 2;
+        const int y = 2;
+        SetFont(PtrFont, 1);
+        PrintFont(x + 1, y + 1, (char*)logicalScreen, (u8*)line1);
+        PrintFont(x + 1, y + 1 + (fontHeight + 1), (char*)logicalScreen, (u8*)line2);
+        SetFont(PtrFont, 255);
+        PrintFont(x, y, (char*)logicalScreen, (u8*)line1);
+        PrintFont(x, y + (fontHeight + 1), (char*)logicalScreen, (u8*)line2);
+    }
+
     // If we had an SFX load/parse failure recently, render a tiny overlay message.
     // We draw into uiLayer so it goes through the normal 320x200 compositing path.
     if (g_debugSfxMsgFramesLeft > 0 && g_debugSfxMsg[0] != '\0' && PtrFont)
@@ -254,30 +424,32 @@ void osystem_endOfFrame()
     pvr_list_begin(PVR_LIST_OP_POLY);
     pvr_prim(&g_pvrHdr, sizeof(g_pvrHdr));
 
+    const float screenW = vid_mode ? (float)vid_mode->width : 640.0f;
+    const float screenH = vid_mode ? (float)vid_mode->height : 480.0f;
+
     pvr_vertex_t v;
     // v0
-    v.flags = PVR_CMD_VERTEX; v.x = 0.0f;   v.y = 0.0f;   v.z = 1.0f;
+    v.flags = PVR_CMD_VERTEX; v.x = 0.0f;    v.y = 0.0f;    v.z = 1.0f;
     v.u = 0.0f; v.v = 0.0f; v.argb = 0xFFFFFFFF; v.oargb = 0;
     pvr_prim(&v, sizeof(v));
     // v1
-    v.flags = PVR_CMD_VERTEX; v.x = 320.0f; v.y = 0.0f;   v.z = 1.0f;
+    v.flags = PVR_CMD_VERTEX; v.x = screenW; v.y = 0.0f;    v.z = 1.0f;
     v.u = g_uMax; v.v = 0.0f; v.argb = 0xFFFFFFFF; v.oargb = 0;
     pvr_prim(&v, sizeof(v));
     // v2
-    v.flags = PVR_CMD_VERTEX; v.x = 0.0f;   v.y = 200.0f; v.z = 1.0f;
+    v.flags = PVR_CMD_VERTEX; v.x = 0.0f;    v.y = screenH; v.z = 1.0f;
     v.u = 0.0f; v.v = g_vMax; v.argb = 0xFFFFFFFF; v.oargb = 0;
     pvr_prim(&v, sizeof(v));
     // v3 (end)
-    v.flags = PVR_CMD_VERTEX_EOL; v.x = 320.0f; v.y = 200.0f; v.z = 1.0f;
+    v.flags = PVR_CMD_VERTEX_EOL; v.x = screenW; v.y = screenH; v.z = 1.0f;
     v.u = g_uMax; v.v = g_vMax; v.argb = 0xFFFFFFFF; v.oargb = 0;
     pvr_prim(&v, sizeof(v));
 
     pvr_list_finish();
     pvr_scene_finish();
 #else
-    ensure_fullscreen_viewport();
+    ensure_game_ortho();
     glClear(GL_COLOR_BUFFER_BIT);
-    glLoadIdentity();
 
     glBindTexture(GL_TEXTURE_2D, g_backgroundTex);
 
@@ -376,7 +548,7 @@ void osystem_createMask(const std::array<u8, 320 * 200>&, int, int, int, int, in
 void osystem_drawMask(int, int) {}
 
 void osystem_startFrame() {}
-void osystem_stopFrame() {}
+void osystem_stopFrame() { osystem_endOfFrame(); }
 void osystem_setClip(float, float, float, float) {}
 void osystem_clearClip() {}
 void osystem_cleanScreenKeepZBuffer() {}
@@ -430,13 +602,13 @@ void osystem_playSample(char* samplePtr, int size)
         // Header is 26 bytes; first block starts at offset 26.
         if (size < 32)
         {
-            dc_set_sfx_debug_msg("SFX parse failed (VOC too small)");
+            dc_set_sfx_debug_msg("I_Warning: SFX parse failed (VOC too small)");
             return;
         }
 
         if ((unsigned char)samplePtr[26] != 1)
         {
-            dc_set_sfx_debug_msg("SFX parse failed (VOC block!=1)");
+            dc_set_sfx_debug_msg("I_Warning: SFX parse failed (VOC block!=1)");
             return;
         }
 
@@ -447,7 +619,7 @@ void osystem_playSample(char* samplePtr, int size)
         // For sound data blocks: data contains [freq_div:1][codec:1][samples...]
         if (blockSize24 < 2)
         {
-            dc_set_sfx_debug_msg("SFX parse failed (VOC block size)");
+            dc_set_sfx_debug_msg("I_Error: SFX parse failed (VOC block size)");
             return;
         }
 
@@ -459,7 +631,7 @@ void osystem_playSample(char* samplePtr, int size)
         const char* sampleData = samplePtr + 32;
         if (32 + sampleBytes > size)
         {
-            dc_set_sfx_debug_msg("SFX parse failed (VOC bounds)");
+            dc_set_sfx_debug_msg("I_Warning: SFX parse failed (VOC bounds)");
             return;
         }
 
@@ -472,8 +644,8 @@ void osystem_playSample(char* samplePtr, int size)
         std::vector<char> tmp(paddedLen, 0);
         std::memcpy(tmp.data(), sampleData, (size_t)sampleBytes);
 
-        // VOC PCM is unsigned 8-bit. The AICA's 8-bit PCM is treated as signed
-        // in practice; converting avoids the heavy DC offset drunk dick.
+        // VOC PCM is unsigned 8-bit. The AICA's 8-bit PCM behaves like signed
+        // in practice; converting avoids the heavy DC offset distortion.
         for (size_t i = 0; i < (size_t)sampleBytes; ++i)
         {
             tmp[i] = (char)(((unsigned char)tmp[i]) ^ 0x80);

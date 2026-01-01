@@ -59,7 +59,8 @@ int SetAnimObjet(int frame, sAnimation* pAnimation, sBody* body)
 
         if(body->m_flags & INFO_OPTIMISE)
         {
-            body->m_groups[i].m_state.m_rotateDelta = keyframe.m_groups[i].m_rotateDelta;
+			body->m_groups[i].m_state.m_hasRotateDelta = keyframe.m_groups[i].m_hasRotateDelta;
+			body->m_groups[i].m_state.m_rotateDelta = keyframe.m_groups[i].m_rotateDelta;
         }
     }
 
@@ -878,9 +879,16 @@ s16 SetInterAnimObjet(int frame, sAnimation* pAnim, sBody* pBody)
                 }
 
                 {
-                    point3dStruct& state = pBody->m_groups[i].m_state.m_rotateDelta.value();
-                    point3dStruct& previousState = pPreviousKeyframe->m_groups[i].m_rotateDelta.value();
-                    point3dStruct& nextState = pKeyframe->m_groups[i].m_rotateDelta.value();
+					if (!pBody->m_groups[i].m_state.m_hasRotateDelta ||
+						!pPreviousKeyframe->m_groups[i].m_hasRotateDelta ||
+						!pKeyframe->m_groups[i].m_hasRotateDelta)
+					{
+						continue;
+					}
+
+					point3dStruct& state = pBody->m_groups[i].m_state.m_rotateDelta;
+					point3dStruct& previousState = pPreviousKeyframe->m_groups[i].m_rotateDelta;
+					point3dStruct& nextState = pKeyframe->m_groups[i].m_rotateDelta;
 
                     PatchInterAngle(&state.x, previousState.x, nextState.x, bp, bx);
                     PatchInterAngle(&state.y, previousState.y, nextState.y, bp, bx);
