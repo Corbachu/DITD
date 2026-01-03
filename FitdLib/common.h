@@ -1,3 +1,10 @@
+#ifdef DREAMCAST
+#include <kos.h>
+#endif
+#ifdef DREAMCAST
+void DC_SetMenuActive(bool active);
+void I_Printf(const char *fmt, ...);
+#endif
 //----------------------------------------------------------------------------
 //  Dream In The Dark common (Game Code)
 //----------------------------------------------------------------------------

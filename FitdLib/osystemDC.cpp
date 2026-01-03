@@ -24,8 +24,10 @@
 #include "font.h"
 #include <array>
 #include <vector>
+#include <algorithm>
 #include <cstring>
 #include <cstdio>
+#include <cmath>
 
 // GLdc
 #include <GL/gl.h>
@@ -51,10 +53,27 @@ static float g_vMax = 200.0f / (float)TEX_H;
 static std::vector<u8> g_pal8Buffer(TEX_W * TEX_H, 0);
 static pvr_poly_cxt_t g_pvrCxt;
 static pvr_poly_hdr_t g_pvrHdr;
+
+// Simple hardware 3D overlay: submit flat-colored triangles via PVR.
+struct DcTri
+{
+    float x1, y1;
+    float x2, y2;
+    float x3, y3;
+    uint32_t argb;
+};
+
+static std::vector<DcTri> g_pvrTris;
+static pvr_poly_cxt_t g_pvrColCxt;
+static pvr_poly_hdr_t g_pvrColHdr;
 #endif
 
 #ifndef USE_PVR_PAL8
 static GLuint g_backgroundTex = 0;
+static constexpr int GL_TEX_W = 512;
+static constexpr int GL_TEX_H = 256;
+static float g_gl_uMax = 320.0f / (float)GL_TEX_W;
+static float g_gl_vMax = 200.0f / (float)GL_TEX_H;
 #endif
 static bool g_glInited = false;
 static std::array<u8, 256 * 3> g_palette = {0};
@@ -63,11 +82,149 @@ static std::array<uint16_t, 256> g_palette565 = {0};
 static bool g_soundInited = false;
 
 static bool g_renderDebugHud = true;
-static uint32_t g_renderDebugPrevButtons = 0;
 static int g_renderDebugCableType = -1;
 
 static char g_debugSfxMsg[128] = {0};
 static int g_debugSfxMsgFramesLeft = 0;
+
+// Software 2D raster helpers used by the engine (8-bit indexed into frontBuffer).
+extern void fillpoly(s16* datas, int n, unsigned char c);
+extern void line(int x1, int y1, int x2, int y2, unsigned char c);
+extern void hline(int x1, int x2, int y, unsigned char c);
+extern unsigned char* polyBackBuffer;
+
+#ifndef USE_PVR_PAL8
+//------------------------------------------------------------------------------
+// GLdc 3D batching (Dreamcast)
+//------------------------------------------------------------------------------
+static void ensure_fullscreen_viewport();
+static void dc_force_fullscreen_scissor();
+
+struct RGL_Vtx
+{
+    float x;
+    float y;
+    float z;
+    u8 colorIdx;
+    u8 alpha;
+};
+
+static std::vector<RGL_Vtx> g_rglTriVtx;
+static std::vector<RGL_Vtx> g_rglLineVtx;
+static std::array<int, 8> g_rglPolyTypeCounts = {0};
+
+static FORCEINLINE void RGL_BeginFrame()
+{
+    g_rglTriVtx.clear();
+    g_rglLineVtx.clear();
+    g_rglPolyTypeCounts.fill(0);
+}
+
+static FORCEINLINE void RGL_AddTri(float x1, float y1, float z1,
+                                  float x2, float y2, float z2,
+                                  float x3, float y3, float z3,
+                                  u8 colorIdx, u8 alpha)
+{
+    g_rglTriVtx.push_back({x1, y1, z1, colorIdx, alpha});
+    g_rglTriVtx.push_back({x2, y2, z2, colorIdx, alpha});
+    g_rglTriVtx.push_back({x3, y3, z3, colorIdx, alpha});
+}
+
+static FORCEINLINE void RGL_AddLine(float x1, float y1, float z1,
+                                   float x2, float y2, float z2,
+                                   u8 colorIdx, u8 alpha)
+{
+    g_rglLineVtx.push_back({x1, y1, z1, colorIdx, alpha});
+    g_rglLineVtx.push_back({x2, y2, z2, colorIdx, alpha});
+}
+
+static void RGL_RenderPolys()
+{
+    if (g_rglTriVtx.empty() && g_rglLineVtx.empty())
+        return;
+
+    // Use the engine's projected X/Y (320x200 game-space) and preserve Z for
+    // ordering. This mirrors the old SDL_GL implementation from Jimmu.
+    ensure_fullscreen_viewport();
+
+    glMatrixMode(GL_PROJECTION);
+    glLoadIdentity();
+    glOrtho(0.0f, 320.0f, 200.0f, 0.0f, 0.2f, -50000.0f);
+
+    glMatrixMode(GL_MODELVIEW);
+    glLoadIdentity();
+
+    dc_force_fullscreen_scissor();
+
+    glDisable(GL_TEXTURE_2D);
+    glDisable(GL_CULL_FACE);
+
+    // The engine already orders primitives for correct painter-style rendering.
+    // Avoid depth buffer work on Dreamcast for speed.
+    glDisable(GL_DEPTH_TEST);
+
+    bool needsBlend = false;
+    for (const auto& v : g_rglTriVtx)
+    {
+        if (v.alpha != 255)
+        {
+            needsBlend = true;
+            break;
+        }
+    }
+    if (!needsBlend)
+    {
+        for (const auto& v : g_rglLineVtx)
+        {
+            if (v.alpha != 255)
+            {
+                needsBlend = true;
+                break;
+            }
+        }
+    }
+
+    if (needsBlend)
+    {
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    }
+    else
+    {
+        glDisable(GL_BLEND);
+    }
+
+    if (!g_rglTriVtx.empty())
+    {
+        glBegin(GL_TRIANGLES);
+        for (const auto& v : g_rglTriVtx)
+        {
+            const u8 r = g_palette[v.colorIdx * 3 + 0];
+            const u8 g = g_palette[v.colorIdx * 3 + 1];
+            const u8 b = g_palette[v.colorIdx * 3 + 2];
+            glColor4ub(r, g, b, v.alpha);
+            glVertex3f(v.x, v.y, v.z);
+        }
+        glEnd();
+    }
+
+    if (!g_rglLineVtx.empty())
+    {
+        glBegin(GL_LINES);
+        for (const auto& v : g_rglLineVtx)
+        {
+            const u8 r = g_palette[v.colorIdx * 3 + 0];
+            const u8 g = g_palette[v.colorIdx * 3 + 1];
+            const u8 b = g_palette[v.colorIdx * 3 + 2];
+            glColor4ub(r, g, b, v.alpha);
+            glVertex3f(v.x, v.y, v.z);
+        }
+        glEnd();
+    }
+
+    glEnable(GL_TEXTURE_2D);
+}
+#endif
 
 static void dc_set_sfx_debug_msg(const char* msg)
 {
@@ -88,7 +245,10 @@ static void ensure_sound()
     }
 }
 
-[[maybe_unused]] static void dc_force_fullframe_scanout_if_needed(int cable)
+#if defined(__GNUC__)
+__attribute__((unused))
+#endif
+static void dc_force_fullframe_scanout_if_needed(int cable)
 {
     // KOS built-in VGA modes intentionally center the bitmap window within the
     // scan area (e.g. bmp 172,40). Force a full-frame bitmap + border window 
@@ -185,9 +345,10 @@ static void ensureTexture()
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP);
-        // allocate initial 320x200 texture store in RGB565
-        std::vector<uint16_t> blank(320 * 200, 0);
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, 320, 200, 0, GL_RGB, GL_UNSIGNED_SHORT_5_6_5, blank.data());
+        // Allocate a POT texture store (GLdc/PVR constraints). We'll update only the
+        // top-left 320x200 sub-rectangle each frame.
+        std::vector<uint16_t> blank(GL_TEX_W * GL_TEX_H, 0);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, GL_TEX_W, GL_TEX_H, 0, GL_RGB, GL_UNSIGNED_SHORT_5_6_5, blank.data());
     }
     else
     {
@@ -226,6 +387,11 @@ void osystem_init()
                          PVR_TXRFMT_PAL8BPP | PVR_TXRFMT_TWIDDLED,
                          TEX_W, TEX_H, g_pal8Texture, PVR_FILTER_NEAREST);
         pvr_poly_compile(&g_pvrHdr, &g_pvrCxt);
+
+        pvr_poly_cxt_col(&g_pvrColCxt, PVR_LIST_OP_POLY);
+        g_pvrColCxt.gen.culling = PVR_CULLING_NONE;
+        pvr_poly_compile(&g_pvrColHdr, &g_pvrColCxt);
+
         g_pvrInited = true;
     }
 #else
@@ -316,8 +482,44 @@ static void uploadComposited()
 
 u32 osystem_startOfFrame()
 {
-    // Single frame advance; engine targets ~25fps
-    return 1;
+    // Frame pacing: the engine logic targets ~25fps.
+    // Bump up to 30 FPS for now.
+    // Without throttling here, Dreamcast will run as fast as the CPU allows,
+    // causing cutscenes, book pages, and gameplay timing to fly by.
+    constexpr uint32_t kFramesPerSecond = 30;
+    constexpr uint32_t kFrameMs = 1000 / kFramesPerSecond;
+
+    static bool s_firstFrame = true;
+    static uint64_t s_lastFrameMs = 0;
+
+    const uint64_t now0 = timer_ms_gettime64();
+    if (s_firstFrame)
+    {
+        s_lastFrameMs = now0;
+        s_firstFrame = false;
+    }
+
+    // If we're running faster than real time, yield until the next frame.
+    uint64_t now = now0;
+    if (now < s_lastFrameMs + kFrameMs)
+    {
+        const uint32_t sleepMs = (uint32_t)((s_lastFrameMs + kFrameMs) - now);
+        if (sleepMs > 0)
+            thd_sleep((int)sleepMs);
+        now = timer_ms_gettime64();
+    }
+
+    uint32_t numFramesToAdvance = (uint32_t)((now - s_lastFrameMs) / kFrameMs);
+    if (numFramesToAdvance == 0)
+        numFramesToAdvance = 1;
+
+    // Advance our time base by the number of frames we report.
+    s_lastFrameMs += (uint64_t)numFramesToAdvance * (uint64_t)kFrameMs;
+
+#ifndef USE_PVR_PAL8
+    RGL_BeginFrame();
+#endif
+    return numFramesToAdvance;
 }
 
 void osystem_endOfFrame()
@@ -325,68 +527,45 @@ void osystem_endOfFrame()
     // Keep cable type diagnostic live for HUD.
     g_renderDebugCableType = vid_check_cable();
 
-    // Toggle render debug HUD with START+Y (edge-triggered).
+    // Print RGL debug stats to the serial console instead of drawing them onto the game.
+    if (g_renderDebugHud)
     {
-        maple_device_t* cont = maple_enum_type(0, MAPLE_FUNC_CONTROLLER);
-        if (cont)
+        static uint32_t last_log_ms = 0;
+        const uint32_t now_ms = (uint32_t)timer_ms_gettime64();
+        if ((now_ms - last_log_ms) > 1000)
         {
-            const cont_state_t* state = (const cont_state_t*)maple_dev_status(cont);
-            const uint32_t buttons = state ? state->buttons : 0;
-            const bool startDown = (buttons & CONT_START) != 0;
-            const bool yDown = (buttons & CONT_Y) != 0;
-            const bool prevStartDown = (g_renderDebugPrevButtons & CONT_START) != 0;
-            const bool prevYDown = (g_renderDebugPrevButtons & CONT_Y) != 0;
+            last_log_ms = now_ms;
 
-            if (startDown && yDown && !(prevStartDown && prevYDown))
-                g_renderDebugHud = !g_renderDebugHud;
+#ifndef USE_PVR_PAL8
+            const int tris = (int)(g_rglTriVtx.size() / 3);
+            const int lines = (int)(g_rglLineVtx.size() / 2);
 
-            g_renderDebugPrevButtons = buttons;
+            bool hasZ = false;
+            float zMin = 0.0f;
+            float zMax = 0.0f;
+            for (const auto& v : g_rglTriVtx)
+            {
+                if (!hasZ) { zMin = zMax = v.z; hasZ = true; }
+                else { if (v.z < zMin) zMin = v.z; if (v.z > zMax) zMax = v.z; }
+            }
+            for (const auto& v : g_rglLineVtx)
+            {
+                if (!hasZ) { zMin = zMax = v.z; hasZ = true; }
+                else { if (v.z < zMin) zMin = v.z; if (v.z > zMax) zMax = v.z; }
+            }
+
+            if (hasZ)
+                I_Printf("[rgl] tris:%d lines:%d z:[%.1f..%.1f] t0:%d t1:%d t2:%d t3:%d\n",
+                         tris, lines, zMin, zMax,
+                         g_rglPolyTypeCounts[0], g_rglPolyTypeCounts[1], g_rglPolyTypeCounts[2], g_rglPolyTypeCounts[3]);
+            else
+                I_Printf("[rgl] tris:%d lines:%d z:(none) t0:%d t1:%d t2:%d t3:%d\n",
+                         tris, lines,
+                         g_rglPolyTypeCounts[0], g_rglPolyTypeCounts[1], g_rglPolyTypeCounts[2], g_rglPolyTypeCounts[3]);
+#else
+            I_Printf("[rgl] (pvr) tris:%d\n", (int)g_pvrTris.size());
+#endif
         }
-    }
-
-    // Render debug HUD into uiLayer (top-left) so it uses the normal 320x200 path.
-    if (g_renderDebugHud && PtrFont)
-    {
-        const int lines = 2;
-        const int bandH = std::min(200, lines * (fontHeight + 1) + 2);
-        for (int y = 0; y < bandH; ++y)
-        {
-            unsigned char* row = uiLayer.data() + y * 320;
-            std::memset(row, 0, 320);
-        }
-
-        int vw = 0, vh = 0;
-        int bx = 0, by = 0;
-        int bxl = 0, bxr = 0, byt = 0, byb = 0;
-        if (vid_mode)
-        {
-            vw = vid_mode->width;
-            vh = vid_mode->height;
-            bx = vid_mode->bitmapx;
-            by = vid_mode->bitmapy;
-            bxl = vid_mode->borderx1;
-            bxr = vid_mode->borderx2;
-            byt = vid_mode->bordery1;
-            byb = vid_mode->bordery2;
-        }
-
-        const int scissorEnabled = glIsEnabled(GL_SCISSOR_TEST) ? 1 : 0;
-
-        char line1[96];
-        char line2[96];
-        std::snprintf(line1, sizeof(line1), "vid:%dx%d bmp:%d,%d bdr:%d-%d,%d-%d cable:%d",
-                      vw, vh, bx, by, bxl, bxr, byt, byb, g_renderDebugCableType);
-        std::snprintf(line2, sizeof(line2), "scissor:%d (forced full) vp:%dx%d",
-                      scissorEnabled, vw, vh);
-
-        const int x = 2;
-        const int y = 2;
-        SetFont(PtrFont, 1);
-        PrintFont(x + 1, y + 1, (char*)logicalScreen, (u8*)line1);
-        PrintFont(x + 1, y + 1 + (fontHeight + 1), (char*)logicalScreen, (u8*)line2);
-        SetFont(PtrFont, 255);
-        PrintFont(x, y, (char*)logicalScreen, (u8*)line1);
-        PrintFont(x, y + (fontHeight + 1), (char*)logicalScreen, (u8*)line2);
     }
 
     // If we had an SFX load/parse failure recently, render a tiny overlay message.
@@ -407,9 +586,9 @@ void osystem_endOfFrame()
 
         // Shadow + main color for readability with unknown palettes.
         SetFont(PtrFont, 1);
-        PrintFont(x + 1, y + 1, (char*)logicalScreen, (u8*)g_debugSfxMsg);
+        PrintFont(x + 1, y + 1, (char*)uiLayer.data(), (u8*)g_debugSfxMsg);
         SetFont(PtrFont, 255);
-        PrintFont(x, y, (char*)logicalScreen, (u8*)g_debugSfxMsg);
+        PrintFont(x, y, (char*)uiLayer.data(), (u8*)g_debugSfxMsg);
 
         g_debugSfxMsgFramesLeft--;
     }
@@ -445,6 +624,43 @@ void osystem_endOfFrame()
     v.u = g_uMax; v.v = g_vMax; v.argb = 0xFFFFFFFF; v.oargb = 0;
     pvr_prim(&v, sizeof(v));
 
+    // Submit flat-colored 3D overlay triangles.
+    // Map from 320x200 game-space to the active video mode resolution.
+    if (!g_pvrTris.empty())
+    {
+        const float sx = screenW / 320.0f;
+        const float sy = screenH / 200.0f;
+
+        pvr_prim(&g_pvrColHdr, sizeof(g_pvrColHdr));
+
+        for (const DcTri& t : g_pvrTris)
+        {
+            pvr_vertex_t pv;
+
+            pv.flags = PVR_CMD_VERTEX;
+            pv.x = t.x1 * sx;
+            pv.y = t.y1 * sy;
+            pv.z = 1.0f;
+            pv.u = 0.0f;
+            pv.v = 0.0f;
+            pv.argb = t.argb;
+            pv.oargb = 0;
+            pvr_prim(&pv, sizeof(pv));
+
+            pv.flags = PVR_CMD_VERTEX;
+            pv.x = t.x2 * sx;
+            pv.y = t.y2 * sy;
+            pvr_prim(&pv, sizeof(pv));
+
+            pv.flags = PVR_CMD_VERTEX_EOL;
+            pv.x = t.x3 * sx;
+            pv.y = t.y3 * sy;
+            pvr_prim(&pv, sizeof(pv));
+        }
+
+        g_pvrTris.clear();
+    }
+
     pvr_list_finish();
     pvr_scene_finish();
 #else
@@ -454,24 +670,43 @@ void osystem_endOfFrame()
     glBindTexture(GL_TEXTURE_2D, g_backgroundTex);
 
     glBegin(GL_TRIANGLE_STRIP);
-    glTexCoord2f(0.f, 0.f); glVertex3f(0.f,   0.f,   0.f);
-    glTexCoord2f(1.f, 0.f); glVertex3f(320.f, 0.f,   0.f);
-    glTexCoord2f(0.f, 1.f); glVertex3f(0.f,   200.f, 0.f);
-    glTexCoord2f(1.f, 1.f); glVertex3f(320.f, 200.f, 0.f);
+    glTexCoord2f(0.f,      0.f);      glVertex3f(0.f,   0.f,   0.f);
+    glTexCoord2f(g_gl_uMax, 0.f);      glVertex3f(320.f, 0.f,   0.f);
+    glTexCoord2f(0.f,      g_gl_vMax); glVertex3f(0.f,   200.f, 0.f);
+    glTexCoord2f(g_gl_uMax, g_gl_vMax); glVertex3f(320.f, 200.f, 0.f);
     glEnd();
+
+    // Draw any queued 3D primitives on top of the background.
+    RGL_RenderPolys();
 
     glKosSwapBuffers();
 #endif
 }
 
-void osystem_flip(unsigned char* /*videoBuffer*/)
+void osystem_flip(unsigned char* videoBuffer)
 {
-    // No separate flip step needed; endOfFrame performs swap.
+    // Many UI/intro paths call osystem_flip() as their present step.
+    // If a buffer is provided, copy it; otherwise assume CopyBlockPhys
+    // (or osystem_drawBackground) has already updated physicalScreen.
+    if (videoBuffer)
+    {
+        osystem_CopyBlockPhys(videoBuffer, 0, 0, 320, 200);
+    }
+    else if (logicalScreen)
+    {
+        osystem_CopyBlockPhys((unsigned char*)logicalScreen, 0, 0, 320, 200);
+    }
+
+    osystem_endOfFrame();
 }
 
 void osystem_drawBackground()
 {
-    // Background drawn in endOfFrame after CopyBlockPhys updates physicalScreen
+    // Used heavily by menus/intro screens as a present step.
+    // Do not implicitly copy from logicalScreen here: many call-sites update
+    // physicalScreen via osystem_CopyBlockPhys already, and forcing a copy can
+    // clobber backgrounds.
+    osystem_endOfFrame();
 }
 
 void osystem_drawUILayer()
@@ -482,11 +717,39 @@ void osystem_drawUILayer()
 void osystem_setPalette(unsigned char* palette)
 {
     std::memcpy(g_palette.data(), palette, 256 * 3);
+
+    // Many classic DOS-era palettes store components as 6-bit (0..63).
+    // Detect that and scale to avoid overly dark output.
+    uint8_t maxc = 0;
+    for (int i = 0; i < 256 * 3; ++i)
+        if (g_palette[i] > maxc) maxc = g_palette[i];
+
+    // Some assets use 5-bit (0..31) too.
+    const int srcMax = (maxc <= 31) ? 31 : (maxc <= 63) ? 63 : 255;
+
+    {
+        static bool s_logged = false;
+        if (!s_logged)
+        {
+            s_logged = true;
+            I_Printf("[palette] max=%u srcMax=%d\n", (unsigned)maxc, srcMax);
+        }
+    }
+
     for (int i = 0; i < 256; ++i)
     {
-        u8 r = g_palette[i * 3 + 0];
-        u8 g = g_palette[i * 3 + 1];
-        u8 b = g_palette[i * 3 + 2];
+        uint16_t r = g_palette[i * 3 + 0];
+        uint16_t g = g_palette[i * 3 + 1];
+        uint16_t b = g_palette[i * 3 + 2];
+
+        if (srcMax != 255)
+        {
+            // Scale 0..srcMax -> 0..255 (rounded).
+            r = (r * 255 + (srcMax / 2)) / srcMax;
+            g = (g * 255 + (srcMax / 2)) / srcMax;
+            b = (b * 255 + (srcMax / 2)) / srcMax;
+        }
+
         uint16_t R = (r >> 3) & 0x1F;
         uint16_t G = (g >> 2) & 0x3F;
         uint16_t B = (b >> 3) & 0x1F;
@@ -504,19 +767,40 @@ void osystem_setPalette(unsigned char* palette)
 
 void osystem_setPalette(palette_t* palette)
 {
+    uint8_t maxc = 0;
     for (int i = 0; i < 256; ++i)
     {
         g_palette[i * 3 + 0] = (*palette)[i][0];
         g_palette[i * 3 + 1] = (*palette)[i][1];
         g_palette[i * 3 + 2] = (*palette)[i][2];
-        uint16_t R = (g_palette[i * 3 + 0] >> 3) & 0x1F;
-        uint16_t G = (g_palette[i * 3 + 1] >> 2) & 0x3F;
-        uint16_t B = (g_palette[i * 3 + 2] >> 3) & 0x1F;
+        if (g_palette[i * 3 + 0] > maxc) maxc = g_palette[i * 3 + 0];
+        if (g_palette[i * 3 + 1] > maxc) maxc = g_palette[i * 3 + 1];
+        if (g_palette[i * 3 + 2] > maxc) maxc = g_palette[i * 3 + 2];
+    }
+
+    const int srcMax = (maxc <= 31) ? 31 : (maxc <= 63) ? 63 : 255;
+
+    for (int i = 0; i < 256; ++i)
+    {
+        uint16_t r = g_palette[i * 3 + 0];
+        uint16_t g = g_palette[i * 3 + 1];
+        uint16_t b = g_palette[i * 3 + 2];
+
+        if (srcMax != 255)
+        {
+            r = (r * 255 + (srcMax / 2)) / srcMax;
+            g = (g * 255 + (srcMax / 2)) / srcMax;
+            b = (b * 255 + (srcMax / 2)) / srcMax;
+        }
+
+        uint16_t R = (r >> 3) & 0x1F;
+        uint16_t G = (g >> 2) & 0x3F;
+        uint16_t B = (b >> 3) & 0x1F;
         g_palette565[i] = (R << 11) | (G << 5) | (B);
     #ifdef USE_PVR_PAL8
-        uint16_t pr = (g_palette[i * 3 + 0] >> 3) & 0x1F;
-        uint16_t pg = (g_palette[i * 3 + 1] >> 3) & 0x1F;
-        uint16_t pb = (g_palette[i * 3 + 2] >> 3) & 0x1F;
+        uint16_t pr = (r >> 3) & 0x1F;
+        uint16_t pg = (g >> 3) & 0x1F;
+        uint16_t pb = (b >> 3) & 0x1F;
         uint16_t packed = (1u << 15) | (pr << 10) | (pg << 5) | (pb);
         pvr_set_pal_entry(i, packed);
     #endif
@@ -553,12 +837,246 @@ void osystem_setClip(float, float, float, float) {}
 void osystem_clearClip() {}
 void osystem_cleanScreenKeepZBuffer() {}
 
-void osystem_fillPoly(float*, int, unsigned char, u8) {}
-void osystem_draw3dLine(float, float, float, float, float, float, unsigned char) {}
-void osystem_draw3dQuad(float, float, float, float, float, float, float, float, float, float, float, float, unsigned char, int) {}
-void osystem_drawSphere(float, float, float, u8, u8, float) {}
-void osystem_drawPoint(float, float, float, u8, u8, float) {}
-void osystem_flushPendingPrimitives() {}
+static FORCEINLINE int dc_iround(float v)
+{
+    return (int)std::lround(v);
+}
+
+void osystem_fillPoly(float* buffer, int numPoint, unsigned char color, u8 polyType)
+{
+    if (!buffer || numPoint <= 0)
+        return;
+
+#ifdef USE_PVR_PAL8
+    // Hardware path: triangulate and submit via PVR at endOfFrame.
+    // Input vertices are already projected into 320x200 screen space.
+    if (numPoint < 3)
+        return;
+
+    const u8 r = g_palette[color * 3 + 0];
+    const u8 g = g_palette[color * 3 + 1];
+    const u8 b = g_palette[color * 3 + 2];
+    const uint32_t argb = 0xFF000000u | ((uint32_t)r << 16) | ((uint32_t)g << 8) | (uint32_t)b;
+
+    const float x0 = buffer[0];
+    const float y0 = buffer[1];
+
+    for (int i = 2; i < numPoint; ++i)
+    {
+        const int i1 = (i - 1) * 3;
+        const int i2 = i * 3;
+
+        DcTri t;
+        t.x1 = x0;
+        t.y1 = y0;
+        t.x2 = buffer[i1 + 0];
+        t.y2 = buffer[i1 + 1];
+        t.x3 = buffer[i2 + 0];
+        t.y3 = buffer[i2 + 1];
+        t.argb = argb;
+        g_pvrTris.push_back(t);
+    }
+    return;
+
+#else
+    // GLdc path: approximate the BGFX material ramps by selecting a palette
+    // index per-vertex (bank stays constant, shade varies 0..15).
+    if (numPoint < 3)
+        return;
+
+    if (polyType < (u8)g_rglPolyTypeCounts.size())
+        g_rglPolyTypeCounts[polyType]++;
+
+    float polyMinX = 320.f;
+    float polyMaxX = 0.f;
+    float polyMinY = 200.f;
+    float polyMaxY = 0.f;
+
+    for (int i = 0; i < numPoint; ++i)
+    {
+        const float X = buffer[i * 3 + 0];
+        const float Y = buffer[i * 3 + 1];
+        polyMinX = std::min(polyMinX, X);
+        polyMaxX = std::max(polyMaxX, X);
+        polyMinY = std::min(polyMinY, Y);
+        polyMaxY = std::max(polyMaxY, Y);
+    }
+
+    float polyW = polyMaxX - polyMinX;
+    float polyH = polyMaxY - polyMinY;
+    if (polyW <= 0.f) polyW = 1.f;
+    if (polyH <= 0.f) polyH = 1.f;
+
+    const int bank = (color & 0xF0) >> 4;
+    const int startColor = (color & 0x0F);
+    const u8 alpha = (polyType == 2) ? 128 : 255;
+
+    auto shade_for_xy = [&](float X, float Y) -> int
+    {
+        switch (polyType)
+        {
+        default:
+        case 0: // flat
+        case 2: // trans (flat + alpha)
+            return startColor;
+        case 1: // dither (approx as alternating shade to avoid fullbright)
+        {
+            const int xi = (int)std::floor(X);
+            const int yi = (int)std::floor(Y);
+            const int shadeA = startColor;
+            const int shadeB = startColor - 1;
+            return ((xi ^ yi) & 1) ? shadeA : shadeB;
+        }
+        case 4: // copper (ramp top-to-bottom)
+        case 5: // copper2 (2 scanlines per color; approximate by half-step)
+        {
+            float step = 1.0f;
+            if (polyType == 5)
+                step *= 0.5f;
+            float shadef = (float)startColor + step * (Y - polyMinY);
+            return (int)std::lround(shadef);
+        }
+        case 3: // marbre (ramp left-to-right)
+        {
+            float step = 15.0f / polyW;
+            float shadef = (float)startColor + step * (X - polyMinX);
+            return (int)std::lround(shadef);
+        }
+        case 6: // marbre2 (ramp right-to-left)
+        {
+            float step = 15.0f / polyW;
+            float shadef = (float)startColor + step * (X - polyMinX);
+            int s = (int)std::lround(shadef);
+            return 15 - s;
+        }
+        }
+    };
+
+    auto vtx_color_idx = [&](float X, float Y) -> u8
+    {
+        int shade = shade_for_xy(X, Y);
+        if (shade < 0) shade = 0;
+        if (shade > 15) shade = 15;
+        return (u8)((bank << 4) | (shade & 0x0F));
+    };
+
+    const float x0 = buffer[0];
+    const float y0 = buffer[1];
+    const float z0 = buffer[2];
+    const u8 c0 = vtx_color_idx(x0, y0);
+
+    for (int i = 2; i < numPoint; ++i)
+    {
+        const int i1 = (i - 1) * 3;
+        const int i2 = i * 3;
+
+        const float x1 = buffer[i1 + 0];
+        const float y1 = buffer[i1 + 1];
+        const float z1 = buffer[i1 + 2];
+        const u8 c1 = vtx_color_idx(x1, y1);
+
+        const float x2 = buffer[i2 + 0];
+        const float y2 = buffer[i2 + 1];
+        const float z2 = buffer[i2 + 2];
+        const u8 c2 = vtx_color_idx(x2, y2);
+
+        g_rglTriVtx.push_back({x0, y0, z0, c0, alpha});
+        g_rglTriVtx.push_back({x1, y1, z1, c1, alpha});
+        g_rglTriVtx.push_back({x2, y2, z2, c2, alpha});
+    }
+    return;
+#endif
+
+    // The engine provides screen-space projected vertices in 320x200.
+    // Use the existing software polygon filler (expects s16 XY pairs).
+    constexpr int kMaxPoints = 50;
+    if (numPoint > kMaxPoints)
+        numPoint = kMaxPoints;
+
+    s16 coords[kMaxPoints * 2];
+    for (int i = 0; i < numPoint; ++i)
+    {
+        const float x = buffer[i * 3 + 0];
+        const float y = buffer[i * 3 + 1];
+        coords[i * 2 + 0] = (s16)dc_iround(x);
+        coords[i * 2 + 1] = (s16)dc_iround(y);
+    }
+
+    unsigned char* prev = polyBackBuffer;
+    polyBackBuffer = frontBuffer;
+    fillpoly(coords, numPoint, color);
+    polyBackBuffer = prev;
+}
+
+void osystem_draw3dLine(float x1, float y1, float z1, float x2, float y2, float z2, unsigned char color)
+{
+#ifdef USE_PVR_PAL8
+    // PAL8 path: fall back to software line into frontBuffer so it composes into the background.
+    line(dc_iround(x1), dc_iround(y1), dc_iround(x2), dc_iround(y2), color);
+#else
+    // GLdc path: batch line.
+    RGL_AddLine(x1, y1, z1, x2, y2, z2, color, 255);
+#endif
+}
+
+void osystem_draw3dQuad(float x1, float y1, float /*z1*/, float x2, float y2, float /*z2*/, float x3, float y3, float /*z3*/, float x4, float y4, float /*z4*/, unsigned char color, int /*transparency*/)
+{
+    // Mostly used by debug helpers; outline is sufficient here.
+    osystem_draw3dLine(x1, y1, 0, x2, y2, 0, color);
+    osystem_draw3dLine(x2, y2, 0, x3, y3, 0, color);
+    osystem_draw3dLine(x3, y3, 0, x4, y4, 0, color);
+    osystem_draw3dLine(x4, y4, 0, x1, y1, 0, color);
+}
+
+static void dc_fill_circle(int cx, int cy, int r, unsigned char color)
+{
+    if (r <= 0)
+        return;
+
+    unsigned char* prev = polyBackBuffer;
+    polyBackBuffer = frontBuffer;
+
+    // Simple scanline circle fill.
+    for (int dy = -r; dy <= r; ++dy)
+    {
+        const int y = cy + dy;
+        const int dxMax = (int)std::floor(std::sqrt((double)r * (double)r - (double)dy * (double)dy));
+        hline(cx - dxMax, cx + dxMax, y, color);
+    }
+
+    polyBackBuffer = prev;
+}
+
+void osystem_drawSphere(float X, float Y, float Z, u8 color, u8 /*material*/, float size)
+{
+#ifndef USE_PVR_PAL8
+    // Approximate spheres as points for now (fast path).
+    (void)size;
+    RGL_AddLine(X - 1.0f, Y, Z, X + 1.0f, Y, Z, color, 255);
+    RGL_AddLine(X, Y - 1.0f, Z, X, Y + 1.0f, Z, color, 255);
+    return;
+#endif
+    // 'size' is already projected to screen space by the renderer.
+    const int r = std::max(1, dc_iround(size));
+    dc_fill_circle(dc_iround(X), dc_iround(Y), r, color);
+}
+
+void osystem_drawPoint(float X, float Y, float Z, u8 color, u8 /*material*/, float size)
+{
+#ifndef USE_PVR_PAL8
+    (void)size;
+    RGL_AddLine(X - 1.0f, Y, Z, X + 1.0f, Y, Z, color, 255);
+    RGL_AddLine(X, Y - 1.0f, Z, X, Y + 1.0f, Z, color, 255);
+    return;
+#endif
+    const int r = std::max(1, dc_iround(size));
+    dc_fill_circle(dc_iround(X), dc_iround(Y), r, color);
+}
+
+void osystem_flushPendingPrimitives()
+{
+    // Nothing to do: primitives are drawn directly into frontBuffer.
+}
 
 int osystem_playTrack(int) { return 0; }
 void osystem_playAdlib() {}

@@ -44,7 +44,11 @@ fi
 # Re-run configure each time so file(GLOB ...) picks up new sources.
 BUILD_DIR="${WORKSPACE_BUILD_DIR:-build-dc}"
 echo "[kos_make] Configuring CMake in $BUILD_DIR ..."
-cmake -B "$BUILD_DIR" -S "$PWD" -DCMAKE_TOOLCHAIN_FILE="$PWD/dreamcast.cmake" -DCMAKE_BUILD_TYPE=Release -G "Unix Makefiles"
+cmake -B "$BUILD_DIR" -S "$PWD" \
+	-DCMAKE_TOOLCHAIN_FILE="$PWD/dreamcast.cmake" \
+	-DCMAKE_BUILD_TYPE=Release \
+	-DDC_USE_PVR_PAL8=OFF \
+	-G "Unix Makefiles"
 
 echo "[kos_make] Building target(s) in $BUILD_DIR $*"
 

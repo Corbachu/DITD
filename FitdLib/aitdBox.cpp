@@ -110,6 +110,8 @@ void AffSpfI(int left, int top, int index, char* gfxData)
 	}
 }
 
+// ~CA: English Translation: 
+//  Large Frame Display
 void AffBigCadre(int x, int y, int width, int height)
 {
     int top;

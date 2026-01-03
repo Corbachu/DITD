@@ -72,6 +72,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 file(GLOB_RECURSE SRC_ROOT
     "*.cpp"
+    "*.cc"
     "*.h"
 )
 
@@ -99,6 +100,11 @@ if(NOT DREAMCAST)
         "${THIRD_PARTY}/imgui/imgui_widgets.cpp"
         "${THIRD_PARTY}/imgui/backends/imgui_impl_sdl3.cpp"
     )
+endif()
+
+if(NOT DREAMCAST)
+    # Dreamcast/KOS-only sources
+    list(FILTER SOURCES EXCLUDE REGEX ".*/System/i_ctrl_dc\\.cc$")
 endif()
 
 function(assign_source_group)

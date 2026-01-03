@@ -215,6 +215,8 @@ void processInventory(void)
     if(!numObjInInventoryTable[currentInventory])
         return;
 
+    DC_SetMenuActive(true);
+
     firstObjectDisplayedIdx = 0;
     lastSelectedObjectIdx = -1;
     selectedObjectIdx = 0;
@@ -462,6 +464,7 @@ void processInventory(void)
     }
 
     //updateShaking();
+    DC_SetMenuActive(false);
 }
 
 

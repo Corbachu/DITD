@@ -52,6 +52,8 @@ void DrawMenu(int selectedEntry)
 
 int MainMenu(void)
 {
+    DC_SetMenuActive(true);
+
     int currentSelectedEntry = 0;
     unsigned int chrono;
     int selectedEntry = -1;
@@ -152,5 +154,6 @@ int MainMenu(void)
         process_events();
     }
 
+    DC_SetMenuActive(false);
     return(selectedEntry);
 }

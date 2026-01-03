@@ -20,6 +20,12 @@
 
 #include "common.h"
 
+#ifdef DREAMCAST
+extern "C" {
+#include <kos/dbgio.h>
+}
+#endif
+
 #ifdef PCLIKE
 #include "SDL.h"
 #endif
@@ -56,6 +62,12 @@ void FadeInPhys(int step,int start)
     {
         for(int i=0;i<256;i+=step)
         {
+			#ifdef DREAMCAST
+			if ((i % (step * 8)) == 0)
+			{
+				dbgio_printf("[dc] FadeInPhys i=%d step=%d fadeState=%d\n", i, step, fadeState);
+			}
+			#endif
 			process_events();
             palette_t localPalette;
             SetLevelDestPal(currentGamePalette,localPalette,i);
@@ -76,6 +88,12 @@ void FadeOutPhys(int step, int var2)
 
     for(int i=256;i>=0;i-=step)
     {
+        #ifdef DREAMCAST
+        if ((i % (step * 8)) == 0)
+        {
+            dbgio_printf("[dc] FadeOutPhys i=%d step=%d\n", i, step);
+        }
+        #endif
 		process_events();
         palette_t localPalette;
 		SetLevelDestPal(currentGamePalette,localPalette,i);
@@ -113,9 +131,19 @@ void process_events( void )
 #else
 void process_events( void )
 {
+#ifdef DREAMCAST
+    // Dreamcast builds don't have the SDL input thread; poll maple here.
+    // IMPORTANT: Do NOT present/swap here. Many loops (FadeInPhys, menus, etc.)
+    // call osystem_drawBackground()/osystem_flip() explicitly; swapping here as
+    // well can stall or appear as a hang.
+    readKeyboard();
+    u32 timeIncrease = osystem_startOfFrame();
+    assert(timeIncrease);
+#else
     osystem_endOfFrame();
 	u32 timeIncrease = osystem_startOfFrame();
     assert(timeIncrease);
+#endif
 #ifdef FITD_DEBUGGER
 	if(debuggerVar_fastForward)
 	{

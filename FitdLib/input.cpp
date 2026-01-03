@@ -25,40 +25,24 @@ extern "C" {
 #include <dc/maple/controller.h>
 }
 
+// Vendored dreamEDGE Dreamcast input handler (adapted for DITD).
+extern void dc_get_controllers();
+extern void I_StartupControl(void);
+extern void I_ControlGetEvents(void);
+
 void readKeyboard(void)
 {
-    JoyD = 0;
-    Click = 0;
-    key = 0;
+    static bool s_inited = false;
+    if (!s_inited)
+    {
+        dc_get_controllers();
+        I_StartupControl();
+        s_inited = true;
+    }
 
-    maple_device_t* controller = maple_enum_type(0, MAPLE_FUNC_CONTROLLER);
-    if (!controller)
-        return;
-
-    auto* state = static_cast<cont_state_t*>(maple_dev_status(controller));
-    if (!state)
-        return;
-
-    // KOS controller bits are active-low: a bit cleared means pressed.
-    if (!(state->buttons & CONT_DPAD_UP))
-        JoyD |= 1;
-    if (!(state->buttons & CONT_DPAD_DOWN))
-        JoyD |= 2;
-    if (!(state->buttons & CONT_DPAD_LEFT))
-        JoyD |= 4;
-    if (!(state->buttons & CONT_DPAD_RIGHT))
-        JoyD |= 8;
-
-    // Match the SDL backend behavior:
-    // - Space sets Click
-    // - Enter sets key=0x1C
-    // - Escape sets key=0x1B
-    if (!(state->buttons & CONT_A))
-        Click = 1;
-    if (!(state->buttons & CONT_START))
-        key = 0x1C;
-    else if (!(state->buttons & CONT_B))
-        key = 0x1B;
+    // The dreamEDGE handler maintains held-state by posting key up/down events.
+    // Do NOT clear JoyD/Click/key here.
+    I_ControlGetEvents();
 }
 
 #else

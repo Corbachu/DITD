@@ -1,7 +1,9 @@
 //----------------------------------------------------------------------------
 //  Dream In The Dark AITD1 (Game Logic)
+
 //----------------------------------------------------------------------------
-//
+//  
+//  Copyright (c) 2025  Corbin Annis
 //  Copyright (c) 2025  yaz0r/jimmu/FITD Team
 //  Copyright (C) 1999-2025  The EDGE Team
 //
@@ -150,6 +152,12 @@ int makeIntroScreens(void)
     osystem_flip(NULL);
     free(data);
     LoadPak("ITD_RESS", AITD1_LIVRE, aux);
+
+    // Prime the book page on screen before waiting / printing text.
+    FastCopyScreen(aux, logicalScreen);
+    osystem_CopyBlockPhys((unsigned char*)logicalScreen, 0, 0, 320, 200);
+    osystem_drawBackground();
+
     startChrono(&chrono);
 
     osystem_drawBackground();

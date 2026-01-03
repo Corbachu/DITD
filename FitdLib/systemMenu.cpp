@@ -70,6 +70,8 @@ void AffOptionList(int selectedStringNumber)
 
 void processSystemMenu(void)
 {
+    DC_SetMenuActive(true);
+
     //int entry = -1;
     int exitMenu = 0;
     int currentSelectedEntry;
@@ -176,4 +178,5 @@ void processSystemMenu(void)
 	localKey = localClick = localJoyD = 0;
 	FlagInitView = 2;
 	RestoreTimerAnim();
+    DC_SetMenuActive(false);
 }

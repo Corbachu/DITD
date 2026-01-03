@@ -652,10 +652,40 @@ void loadPalette(void)
 
 void turnPageForward()
 {
+	// Simple page-flip approximation: reveal the new page with a right-to-left wipe.
+	// logicalScreen holds the new page at this point.
+	const int steps = 16;
+	for (int i = 1; i < steps; ++i)
+	{
+		process_events();
+
+		int x0 = 320 - (320 * i) / steps;
+		if (x0 < 0) x0 = 0;
+
+		osystem_CopyBlockPhys((unsigned char*)logicalScreen, x0, 0, 320, 200);
+		osystem_drawBackground();
+	}
+
+	// Ensure final page fully applied; caller will present once more.
+	osystem_CopyBlockPhys((unsigned char*)logicalScreen, 0, 0, 320, 200);
 }
 
 void turnPageBackward()
 {
+	// Simple page-flip approximation: reveal the new page with a left-to-right wipe.
+	const int steps = 16;
+	for (int i = 1; i < steps; ++i)
+	{
+		process_events();
+
+		int x1 = (320 * i) / steps;
+		if (x1 > 320) x1 = 320;
+
+		osystem_CopyBlockPhys((unsigned char*)logicalScreen, 0, 0, x1, 200);
+		osystem_drawBackground();
+	}
+
+	osystem_CopyBlockPhys((unsigned char*)logicalScreen, 0, 0, 320, 200);
 }
 
 void readBook(int index, int type)
