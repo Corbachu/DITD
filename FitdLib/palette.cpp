@@ -1,5 +1,5 @@
 //----------------------------------------------------------------------------
-//  Dream In The Dark palette (Rendering)
+//  Dream In The Dark Palette Handling (Rendering)
 //----------------------------------------------------------------------------
 //
 //  Copyright (c) 2025  yaz0r/jimmu/FITD Team
@@ -52,13 +52,30 @@ void copyPalette(void* source, palette_t& dest)
 
 void convertPaletteIfRequired(palette_t& lpalette)
 {
-    if (g_gameId >= JACK && g_gameId <= AITD3)
+    if (g_gameId >= AITD1 && g_gameId <= AITD3)
     {
+        // Palettes for these games are commonly stored as 6-bit (0..63)
+        // and sometimes as 7-bit (0..127). The renderers expect 8-bit.
+        // Avoid double-conversion (wrap) which would make output look dark.
+        unsigned char maxc = 0;
+        for (int i = 0; i < 256; i++)
+        {
+            if (lpalette[i][0] > maxc) maxc = lpalette[i][0];
+            if (lpalette[i][1] > maxc) maxc = lpalette[i][1];
+            if (lpalette[i][2] > maxc) maxc = lpalette[i][2];
+        }
+
+        // Already 8-bit.
+        if (maxc > 127)
+            return;
+
+        const unsigned int denom = (maxc <= 63) ? 63u : 127u;
+
         for (int i = 0; i < 256; i++)
         {
             for (int j = 0; j < 3; j++)
             {
-                lpalette[i][j] = (((unsigned int)lpalette[i][j] * 255) / 63) & 0xFF;
+                lpalette[i][j] = (((unsigned int)lpalette[i][j] * 255u) / denom) & 0xFF;
             }
         }
     }

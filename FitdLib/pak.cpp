@@ -22,6 +22,12 @@
 
 #include "fitd_endian_read.h"
 
+#ifdef DREAMCAST
+extern "C" {
+#include <kos/dbgio.h>
+}
+#endif
+
 #ifdef WIN32
 #include <direct.h>
 #endif
@@ -272,6 +278,26 @@ char* loadPak(const char* name, int index)
 		else
 		{
 			fseek(fileHandle,pakInfo.offset,SEEK_CUR);
+
+    #ifdef DREAMCAST
+            // ~CA: Trying to fix the god damn screen darkening problems.
+            // NOTE: Many 320x200 images are either 64000 bytes (pixels only) or
+            // 64768/64770 bytes (palette + pixels). Log only larger assets to
+            // keep the console usable.
+            int uncompressedSize = 0;
+            if (pakInfo.compressionFlag == 0)
+                uncompressedSize = pakInfo.discSize;
+            else
+                uncompressedSize = pakInfo.uncompressedSize;
+
+            if (uncompressedSize >= 60000)
+            {
+                const bool looksLikeScreen = (uncompressedSize == 64000 || uncompressedSize == 64768 || uncompressedSize == 64770);
+                dbgio_printf("[dc] loadPak(%s,%d) size=%d comp=%d%s\n",
+                             name, index, uncompressedSize, (int)pakInfo.compressionFlag,
+                             looksLikeScreen ? " [320x200-ish]" : "");
+            }
+    #endif
 		}
 
 		switch(pakInfo.compressionFlag)

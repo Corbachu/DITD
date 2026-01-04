@@ -40,8 +40,15 @@ void readKeyboard(void)
         s_inited = true;
     }
 
-    // The dreamEDGE handler maintains held-state by posting key up/down events.
-    // Do NOT clear JoyD/Click/key here.
+    // DITD menu/cutscene code expects `key`/`Click` to behave like a "new input"
+    // (it often waits for them to return to 0 before accepting the next press).
+    // On Dreamcast, treating them as held states makes it feel like the game
+    // requires "double presses" (release then press).
+    //
+    // Make `key`/`Click` one-poll pulses while keeping `JoyD` as a held state.
+    Click = 0;
+    key = 0;
+
     I_ControlGetEvents();
 }
 

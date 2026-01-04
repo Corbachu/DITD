@@ -25,6 +25,7 @@ extern "C" {
 int musicUpdate(void *udata, uint8 *stream, int len);
 void playMusic(int musicNumber);
 extern bool g_gameUseCDA;
+extern int musicVolume;
 };
 
 void callMusicUpdate(void);

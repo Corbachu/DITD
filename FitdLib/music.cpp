@@ -20,6 +20,12 @@
 
 #include "fitd_endian_read.h"
 
+#ifdef DREAMCAST
+extern "C" {
+#include <kos/dbgio.h>
+}
+#endif
+
 bool g_gameUseCDA = false;
 
 int musicVolume = 0x7F;
@@ -724,7 +730,11 @@ int initialialize(void* dummy)
 
 int getSignature(void* dummy)
 {
-    return 0;
+    (void)dummy;
+    // The engine treats a non-zero return from initMusicDriver() as success.
+    // On Dreamcast we stream YM3812 (OPL2) output via AICA, so report success
+    // once the OPL emulator has been initialized.
+    return OPLinitialized ? 1 : 0;
 }
 
 void commandNop(channelTable2Element* entry, int param,u8* ptr)
@@ -1246,6 +1256,9 @@ int initMusicDriver(void)
 
 void loadMusic(int param, char* musicPtr)
 {
+#ifdef DREAMCAST
+    dbgio_printf("[dc] [music] loadMusic ptr=%p param=%d\n", (void*)musicPtr, param);
+#endif
     callMusicDrv(3,musicPtr);
     callMusicDrv(2,NULL);
 }
@@ -1278,6 +1291,10 @@ void playMusic(int musicNumber)
 	if(osystem_playTrack(trackNumber))
 		return;
 
+#ifdef DREAMCAST
+    dbgio_printf("[dc] [music] playMusic id=%d track=%d (adlib)\n", musicNumber, trackNumber);
+#endif
+
     //  if(musicEnabled)
     {
         //if(currentMusic != musicNumber)
@@ -1291,6 +1308,10 @@ void playMusic(int musicNumber)
                 fadeMusic(0,0,0x40);
 
                 musicPtr = HQR_Get(listMus,musicNumber);
+
+#ifdef DREAMCAST
+                dbgio_printf("[dc] [music] HQR_Get LISTMUS idx=%d -> %p\n", musicNumber, (void*)musicPtr);
+#endif
 
 				if(musicPtr)
 				{

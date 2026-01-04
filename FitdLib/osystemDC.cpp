@@ -35,10 +35,15 @@
 
 #include <dc/video.h>
 #include <dc/sound/sound.h>
+#include <dc/sound/stream.h>
 #include <dc/sound/sfxmgr.h>
 
 #include <dc/maple.h>
 #include <dc/maple/controller.h>
+
+extern "C" {
+#include <kos/dbgio.h>
+}
 
 // Start building a native PVR paletted path (PAL8)
 // Enable with -DUSE_PVR_PAL8 to switch from GLdc blit to PVR renderer.
@@ -80,6 +85,49 @@ static std::array<u8, 256 * 3> g_palette = {0};
 static std::array<uint16_t, 256> g_palette565 = {0};
 
 static bool g_soundInited = false;
+
+//------------------------------------------------------------------------------
+// ADL/OPL music streaming via KOS snd_stream
+//------------------------------------------------------------------------------
+static bool g_streamInited = false;
+static snd_stream_hnd_t g_adlibStream = SND_STREAM_INVALID;
+static bool g_adlibStreamStarted = false;
+
+static constexpr uint32_t kAdlibHz = 44100;
+// Buffer size is per-channel bytes; 16-bit mono => bytes = samples * 2.
+static constexpr int kAdlibBufBytes = 16 * 1024;
+static uint8_t g_adlibPcmBuf[kAdlibBufBytes] __attribute__((aligned(32)));
+
+static void* dc_adlib_stream_cb(snd_stream_hnd_t /*hnd*/, int smp_req, int* smp_recv)
+{
+    if (!smp_recv)
+        return nullptr;
+
+    static bool s_loggedOnce = false;
+    if (!s_loggedOnce)
+    {
+        s_loggedOnce = true;
+        dbgio_printf("[dc] [music] adlib stream cb active (req=%d)\n", smp_req);
+    }
+
+    int maxSamples = kAdlibBufBytes / 2;
+    int samples = smp_req;
+    if (samples > maxSamples)
+        samples = maxSamples;
+    if (samples < 0)
+        samples = 0;
+
+    const int bytes = samples * 2;
+    std::memset(g_adlibPcmBuf, 0, (size_t)bytes);
+
+    // musicUpdate() outputs signed 16-bit PCM into the provided byte buffer.
+    // If the OPL driver isn't initialized or no song is loaded, it will leave
+    // the buffer untouched, so we pre-zero it above.
+    musicUpdate(nullptr, g_adlibPcmBuf, bytes);
+
+    *smp_recv = samples;
+    return g_adlibPcmBuf;
+}
 
 static bool g_renderDebugHud = true;
 static int g_renderDebugCableType = -1;
@@ -240,8 +288,28 @@ static void ensure_sound()
 {
     if (!g_soundInited)
     {
-        snd_init();
+        // Use the stream init path so we can play OPL music and SFX together.
+        // NOTE: snd_stream_init() implicitly calls snd_init() and may reset the AICA.
+        if (!g_streamInited)
+        {
+            if (snd_stream_init() == 0)
+                g_streamInited = true;
+        }
+
+        if (!g_streamInited)
+        {
+            // Fallback: at least bring up basic sound so SFX works.
+            snd_init();
+        }
         g_soundInited = true;
+    }
+}
+
+static void dc_music_poll()
+{
+    if (g_adlibStreamStarted && g_adlibStream != SND_STREAM_INVALID)
+    {
+        snd_stream_poll(g_adlibStream);
     }
 }
 
@@ -482,53 +550,57 @@ static void uploadComposited()
 
 u32 osystem_startOfFrame()
 {
-    // Frame pacing: the engine logic targets ~25fps.
-    // Bump up to 30 FPS for now.
+    // Frame pacing: keep the engine logic deterministic (30FPS, for now 25FPS..).
+    // Returning >1 here causes the game to advance multiple logic ticks in a
+    // single rendered frame, which can make fades/text feel like they vanish.
+    
     // Without throttling here, Dreamcast will run as fast as the CPU allows,
     // causing cutscenes, book pages, and gameplay timing to fly by.
-    constexpr uint32_t kFramesPerSecond = 30;
+    constexpr uint32_t kFramesPerSecond = 25;
     constexpr uint32_t kFrameMs = 1000 / kFramesPerSecond;
 
     static bool s_firstFrame = true;
-    static uint64_t s_lastFrameMs = 0;
+    static uint64_t s_nextFrameMs = 0;
 
     const uint64_t now0 = timer_ms_gettime64();
     if (s_firstFrame)
     {
-        s_lastFrameMs = now0;
+        s_nextFrameMs = now0 + kFrameMs;
         s_firstFrame = false;
     }
 
     // If we're running faster than real time, yield until the next frame.
     uint64_t now = now0;
-    if (now < s_lastFrameMs + kFrameMs)
+    if (now < s_nextFrameMs)
     {
-        const uint32_t sleepMs = (uint32_t)((s_lastFrameMs + kFrameMs) - now);
+        const uint32_t sleepMs = (uint32_t)(s_nextFrameMs - now);
         if (sleepMs > 0)
             thd_sleep((int)sleepMs);
         now = timer_ms_gettime64();
     }
 
-    uint32_t numFramesToAdvance = (uint32_t)((now - s_lastFrameMs) / kFrameMs);
-    if (numFramesToAdvance == 0)
-        numFramesToAdvance = 1;
-
-    // Advance our time base by the number of frames we report.
-    s_lastFrameMs += (uint64_t)numFramesToAdvance * (uint64_t)kFrameMs;
+    // If we fell behind (slow frame), resync to avoid "catching up" logic.
+    if (now > s_nextFrameMs + (uint64_t)kFrameMs)
+        s_nextFrameMs = now + kFrameMs;
+    else
+        s_nextFrameMs += kFrameMs;
 
 #ifndef USE_PVR_PAL8
     RGL_BeginFrame();
 #endif
-    return numFramesToAdvance;
+    return 1;
 }
 
 void osystem_endOfFrame()
 {
+    // Keep music stream fed.
+    dc_music_poll();
+
     // Keep cable type diagnostic live for HUD.
     g_renderDebugCableType = vid_check_cable();
 
     // Print RGL debug stats to the serial console instead of drawing them onto the game.
-    if (g_renderDebugHud)
+    if (g_renderDebugHud && !DC_IsMenuActive())
     {
         static uint32_t last_log_ms = 0;
         const uint32_t now_ms = (uint32_t)timer_ms_gettime64();
@@ -669,6 +741,11 @@ void osystem_endOfFrame()
 
     glBindTexture(GL_TEXTURE_2D, g_backgroundTex);
 
+    // Ensure 2D blits are not darkened by leftover 3D state.
+    glDisable(GL_BLEND);
+    glColor4ub(255, 255, 255, 255);
+    glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE);
+
     glBegin(GL_TRIANGLE_STRIP);
     glTexCoord2f(0.f,      0.f);      glVertex3f(0.f,   0.f,   0.f);
     glTexCoord2f(g_gl_uMax, 0.f);      glVertex3f(320.f, 0.f,   0.f);
@@ -685,6 +762,8 @@ void osystem_endOfFrame()
 
 void osystem_flip(unsigned char* videoBuffer)
 {
+    dc_music_poll();
+
     // Many UI/intro paths call osystem_flip() as their present step.
     // If a buffer is provided, copy it; otherwise assume CopyBlockPhys
     // (or osystem_drawBackground) has already updated physicalScreen.
@@ -702,6 +781,8 @@ void osystem_flip(unsigned char* videoBuffer)
 
 void osystem_drawBackground()
 {
+    dc_music_poll();
+
     // Used heavily by menus/intro screens as a present step.
     // Do not implicitly copy from logicalScreen here: many call-sites update
     // physicalScreen via osystem_CopyBlockPhys already, and forcing a copy can
@@ -718,37 +799,26 @@ void osystem_setPalette(unsigned char* palette)
 {
     std::memcpy(g_palette.data(), palette, 256 * 3);
 
-    // Many classic DOS-era palettes store components as 6-bit (0..63).
-    // Detect that and scale to avoid overly dark output.
+#ifdef DREAMCAST
+    // Mirror rendererBGFX: treat palette bytes as already 0..255.
     uint8_t maxc = 0;
     for (int i = 0; i < 256 * 3; ++i)
         if (g_palette[i] > maxc) maxc = g_palette[i];
-
-    // Some assets use 5-bit (0..31) too.
-    const int srcMax = (maxc <= 31) ? 31 : (maxc <= 63) ? 63 : 255;
-
     {
-        static bool s_logged = false;
-        if (!s_logged)
+        static int s_lastMax = -1;
+        if ((int)maxc != s_lastMax)
         {
-            s_logged = true;
-            I_Printf("[palette] max=%u srcMax=%d\n", (unsigned)maxc, srcMax);
+            s_lastMax = (int)maxc;
+            dbgio_printf("[dc] [palette] max=%u\n", (unsigned)maxc);
         }
     }
+#endif
 
     for (int i = 0; i < 256; ++i)
     {
-        uint16_t r = g_palette[i * 3 + 0];
-        uint16_t g = g_palette[i * 3 + 1];
-        uint16_t b = g_palette[i * 3 + 2];
-
-        if (srcMax != 255)
-        {
-            // Scale 0..srcMax -> 0..255 (rounded).
-            r = (r * 255 + (srcMax / 2)) / srcMax;
-            g = (g * 255 + (srcMax / 2)) / srcMax;
-            b = (b * 255 + (srcMax / 2)) / srcMax;
-        }
+        const uint16_t r = g_palette[i * 3 + 0];
+        const uint16_t g = g_palette[i * 3 + 1];
+        const uint16_t b = g_palette[i * 3 + 2];
 
         uint16_t R = (r >> 3) & 0x1F;
         uint16_t G = (g >> 2) & 0x3F;
@@ -778,20 +848,22 @@ void osystem_setPalette(palette_t* palette)
         if (g_palette[i * 3 + 2] > maxc) maxc = g_palette[i * 3 + 2];
     }
 
-    const int srcMax = (maxc <= 31) ? 31 : (maxc <= 63) ? 63 : 255;
+#ifdef DREAMCAST
+    {
+        static int s_lastMax = -1;
+        if ((int)maxc != s_lastMax)
+        {
+            s_lastMax = (int)maxc;
+            dbgio_printf("[dc] [palette] max=%u\n", (unsigned)maxc);
+        }
+    }
+#endif
 
     for (int i = 0; i < 256; ++i)
     {
-        uint16_t r = g_palette[i * 3 + 0];
-        uint16_t g = g_palette[i * 3 + 1];
-        uint16_t b = g_palette[i * 3 + 2];
-
-        if (srcMax != 255)
-        {
-            r = (r * 255 + (srcMax / 2)) / srcMax;
-            g = (g * 255 + (srcMax / 2)) / srcMax;
-            b = (b * 255 + (srcMax / 2)) / srcMax;
-        }
+        const uint16_t r = g_palette[i * 3 + 0];
+        const uint16_t g = g_palette[i * 3 + 1];
+        const uint16_t b = g_palette[i * 3 + 2];
 
         uint16_t R = (r >> 3) & 0x1F;
         uint16_t G = (g >> 2) & 0x3F;
@@ -909,7 +981,10 @@ void osystem_fillPoly(float* buffer, int numPoint, unsigned char color, u8 polyT
 
     const int bank = (color & 0xF0) >> 4;
     const int startColor = (color & 0x0F);
-    const u8 alpha = (polyType == 2) ? 128 : 255;
+    // NOTE: On Dreamcast we currently treat all polys as fully opaque.
+    // Some sources label polyType==2 as "trans", but using constant half-alpha
+    // causes key models (e.g. the armadillo) to appear incorrectly transparent.
+    const u8 alpha = 255;
 
     auto shade_for_xy = [&](float X, float Y) -> int
     {
@@ -1079,7 +1154,33 @@ void osystem_flushPendingPrimitives()
 }
 
 int osystem_playTrack(int) { return 0; }
-void osystem_playAdlib() {}
+void osystem_playAdlib()
+{
+    ensure_sound();
+
+    if (!g_streamInited)
+        return;
+
+    if (g_adlibStream == SND_STREAM_INVALID)
+    {
+        g_adlibStream = snd_stream_alloc(dc_adlib_stream_cb, kAdlibBufBytes);
+        if (g_adlibStream == SND_STREAM_INVALID)
+            return;
+    }
+
+    // Start streaming the OPL synth output.
+    if (!g_adlibStreamStarted)
+    {
+        snd_stream_start(g_adlibStream, kAdlibHz, 0 /*mono*/);
+        g_adlibStreamStarted = true;
+    }
+
+    // Map engine 0..0x7F volume to KOS 0..255.
+    int vol = musicVolume * 2;
+    if (vol < 0) vol = 0;
+    if (vol > 255) vol = 255;
+    snd_stream_volume(g_adlibStream, vol);
+}
 void osystem_playSample(char* samplePtr, int size)
 {
     if (!samplePtr || size <= 0)

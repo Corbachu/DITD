@@ -58,6 +58,11 @@ void DC_SetMenuActive(bool active)
     menuactive = active;
 }
 
+bool DC_IsMenuActive()
+{
+    return menuactive;
+}
+
 enum
 {
     ev_keydown = 1,
@@ -1000,7 +1005,7 @@ static int I_GetTime(void)
     uint32 t = timer_ms_gettime64();
 
     // more complex than "t*35/1000" to give more accuracy
-    return (t / 1000) * 30 + (t % 1000) * 30 / 1000;
+    return (t / 1000) * 25 + (t % 1000) * 25 / 1000;
 }
 
 

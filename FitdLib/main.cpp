@@ -26,6 +26,12 @@
 
 #include "common.h"
 
+#ifdef DREAMCAST
+extern "C" {
+#include <kos/dbgio.h>
+}
+#endif
+
 #if defined(DREAMCAST)
 #include "dc_splash.h"
 #endif
@@ -645,13 +651,18 @@ void loadPalette(void)
 	copyPalette(aux,currentGamePalette);
 
 	copyPalette(currentGamePalette,localPalette);
-	//  fadeInSub1(localPalette);
+	convertPaletteIfRequired(localPalette);
+	copyPalette(localPalette, currentGamePalette);
 
-	// to finish
+	//  fadeInSub1(localPalette);
 }
 
 void turnPageForward()
 {
+	#ifdef DREAMCAST
+	dbgio_printf("[dc] turnPageForward()\n");
+	#endif
+
 	// Simple page-flip approximation: reveal the new page with a right-to-left wipe.
 	// logicalScreen holds the new page at this point.
 	const int steps = 16;
@@ -672,6 +683,10 @@ void turnPageForward()
 
 void turnPageBackward()
 {
+	#ifdef DREAMCAST
+	dbgio_printf("[dc] turnPageBackward()\n");
+	#endif
+
 	// Simple page-flip approximation: reveal the new page with a left-to-right wipe.
 	const int steps = 16;
 	for (int i = 1; i < steps; ++i)
@@ -690,6 +705,10 @@ void turnPageBackward()
 
 void readBook(int index, int type)
 {
+	#ifdef DREAMCAST
+	dbgio_printf("[dc] readBook(index=%d type=%d gameId=%d)\n", index, type, (int)g_gameId);
+	#endif
+
 	SaveTimerAnim();
 
 	switch(g_gameId)

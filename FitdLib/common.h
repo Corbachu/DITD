@@ -3,6 +3,7 @@
 #endif
 #ifdef DREAMCAST
 void DC_SetMenuActive(bool active);
+bool DC_IsMenuActive();
 void I_Printf(const char *fmt, ...);
 #endif
 //----------------------------------------------------------------------------

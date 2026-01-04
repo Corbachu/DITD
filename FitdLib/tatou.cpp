@@ -75,6 +75,11 @@ void FadeInPhys(int step,int start)
 			osystem_refreshFrontTextureBuffer();
 			osystem_drawBackground();
         }
+
+        // Ensure we land on the full source palette (loop may end < 256).
+        setPalette(currentGamePalette);
+        osystem_refreshFrontTextureBuffer();
+        osystem_drawBackground();
     }
 
     fadeState = 1;

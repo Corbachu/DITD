@@ -89,6 +89,7 @@ int make3dTatou(void)
 
     char* tatouPalRaw = CheckLoadMallocPak("ITD_RESS",AITD1_TATOU_PAL);
     copyPalette(tatouPalRaw, tatouPal);
+    convertPaletteIfRequired(tatouPal);
 
 #ifdef DREAMCAST
     dbgio_printf("[dc] make3dTatou: loaded palette raw=%p\n", (void*)tatouPalRaw);

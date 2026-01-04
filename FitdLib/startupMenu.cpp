@@ -18,6 +18,12 @@
 //----------------------------------------------------------------------------
 #include "common.h"
 
+#ifdef DREAMCAST
+extern "C" {
+#include <kos/dbgio.h>
+}
+#endif
+
 void DrawMenu(int selectedEntry)
 {
     if (g_gameId == AITD3) {
@@ -53,6 +59,10 @@ void DrawMenu(int selectedEntry)
 int MainMenu(void)
 {
     DC_SetMenuActive(true);
+
+#ifdef DREAMCAST
+    dbgio_printf("[dc] MainMenu(): enter (gameId=%d)\n", (int)g_gameId);
+#endif
 
     int currentSelectedEntry = 0;
     unsigned int chrono;
@@ -155,5 +165,9 @@ int MainMenu(void)
     }
 
     DC_SetMenuActive(false);
+
+#ifdef DREAMCAST
+    dbgio_printf("[dc] MainMenu(): exit selectedEntry=%d\n", selectedEntry);
+#endif
     return(selectedEntry);
 }
