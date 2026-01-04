@@ -27,7 +27,6 @@
 #include "vars.h"
 
 #include <array>
-#include <vector>
 #include <algorithm>
 #include <cstring>
 #include <cstdio>
@@ -39,14 +38,11 @@ extern "C" {
 }
 
 #include <kos/thread.h>
+#include <arch/timer.h>
 
 // Engine callback.
 extern "C" int musicUpdate(void* udata, uint8* stream, int len);
 
-//------------------------------------------------------------------------------
-// Dream in the Dark Music Streaming Support
-// ADL/OPL music streaming via KOS snd_stream
-//------------------------------------------------------------------------------
 static snd_stream_hnd_t g_adlibStream = SND_STREAM_INVALID;
 static bool g_adlibStreamStarted = false;
 
@@ -64,6 +60,7 @@ static volatile uint32_t g_adlibSongSerial = 0;
 // (synth thread) and consumer (snd_stream callback) to avoid corruption and
 // accidental "old track" bleed.
 static volatile bool g_adlibFlushRequested = false;
+static volatile const char* g_adlibFlushReason = nullptr;
 static volatile int g_adlibRingLock = 0;
 
 // AICA output is easy to overdrive; keep some headroom.
@@ -82,16 +79,18 @@ static inline void dc_adlib_ring_unlock()
     __sync_lock_release(&g_adlibRingLock);
 }
 
-// Empirically, on this target `snd_stream_start(freq, ...)` plays at ~2x the
-// requested frequency (e.g. 22050 -> ~44100, 44100 -> ~88200). We pass half
-// the desired output rate so the effective playback rate is ~44100Hz.
-static constexpr uint32_t kAdlibHz = 22050;
+// Empirically, KOS's `snd_stream` callback is being driven at ~44.1k samples/sec
+// on this target. Run the whole path at 44100Hz to keep pitch/tempo correct.
+static constexpr uint32_t kAdlibHz = 44100;
+
+// Stream callback cadence depends on how often we poll and internal buffering.
+// It's useful for debug, but do not use it to change resampling at runtime.
 // Buffer size is per-channel bytes; 16-bit mono => bytes = samples * 2.
 static constexpr int kAdlibBufBytes = 16 * 1024;
 static uint8_t g_adlibPcmBuf[kAdlibBufBytes] __attribute__((aligned(32)));
 
 // Ring buffer for pre-generated PCM.
-static constexpr uint32_t kAdlibRingSamples = 65536; // ~1.48s @ 44100Hz
+static constexpr uint32_t kAdlibRingSamples = 65536; // ~2.97s @ 22050Hz
 static int16_t g_adlibRing[kAdlibRingSamples] __attribute__((aligned(32)));
 static volatile uint32_t g_adlibRingRead = 0;
 static volatile uint32_t g_adlibRingWrite = 0;
@@ -109,6 +108,20 @@ static FORCEINLINE uint32_t dc_ring_space(uint32_t rd, uint32_t wr)
 
 static FORCEINLINE void dc_adlib_ring_flush_locked()
 {
+    static uint32_t s_flushSeq = 0;
+    ++s_flushSeq;
+    const char* reason = (const char*)g_adlibFlushReason;
+    const uint32_t rd = g_adlibRingRead;
+    const uint32_t wr = g_adlibRingWrite;
+    const uint32_t avail = dc_ring_avail(rd, wr);
+    dbgio_printf("[dc] [adlib] flush #%lu reason=%s avail=%lu rd=%lu wr=%lu\n",
+            (unsigned long)s_flushSeq,
+            reason ? reason : "(none)",
+            (unsigned long)avail,
+            (unsigned long)rd,
+            (unsigned long)wr);
+    g_adlibFlushReason = nullptr;
+
     g_adlibRingRead = 0;
     g_adlibRingWrite = 0;
 }
@@ -149,28 +162,10 @@ static FORCEINLINE void dc_adlib_ring_write_chunk(const int16_t* src, uint32_t s
     dc_adlib_ring_unlock();
 }
 
-static FORCEINLINE void dc_adlib_upsample_x2(const int16_t* in, int16_t* out, uint32_t inSamples)
+static FORCEINLINE void dc_adlib_atten(const int16_t* in, int16_t* out, uint32_t samples)
 {
-    // Cheap 2x upsample (linear). Reduces harsh imaging vs nearest-neighbor,
-    // while remaining very low CPU.
-    if (inSamples == 0)
-        return;
-
-    for (uint32_t i = 0; i + 1 < inSamples; i++)
-    {
-        const int16_t a = in[i];
-        const int16_t b = in[i + 1];
-
-        // Apply a small attenuation to avoid distortion on AICA.
-        out[i * 2 + 0] = (int16_t)((int)a >> kAdlibPcmAttenShift);
-        out[i * 2 + 1] = (int16_t)((((int)a + (int)b) / 2) >> kAdlibPcmAttenShift);
-    }
-
-    // Last sample: hold.
-    const int16_t last = in[inSamples - 1];
-    const int16_t lastA = (int16_t)((int)last >> kAdlibPcmAttenShift);
-    out[(inSamples - 1) * 2 + 0] = lastA;
-    out[(inSamples - 1) * 2 + 1] = lastA;
+    for (uint32_t i = 0; i < samples; ++i)
+        out[i] = (int16_t)(((int)in[i]) >> kAdlibPcmAttenShift);
 }
 
 static void* dc_adlib_stream_cb(snd_stream_hnd_t /*hnd*/, int smp_req, int* smp_recv)
@@ -185,17 +180,53 @@ static void* dc_adlib_stream_cb(snd_stream_hnd_t /*hnd*/, int smp_req, int* smp_
         dbgio_printf("[dc] [music] adlib stream cb active (req=%d)\n", smp_req);
     }
 
-    int maxSamples = kAdlibBufBytes / 2;
-    int samples = smp_req;
-    if (samples > maxSamples)
-        samples = maxSamples;
-    if (samples < 0)
-        samples = 0;
+    // KOS passes/receives BYTES here (despite the header naming).
+    // For 16-bit mono, samples = bytes / 2.
+    int bytes = smp_req;
+    if (bytes > kAdlibBufBytes)
+        bytes = kAdlibBufBytes;
+    if (bytes < 0)
+        bytes = 0;
+    bytes &= ~1; // keep 16-bit aligned
+
+    const int samples = bytes / 2;
 
     int16_t* out = (int16_t*)g_adlibPcmBuf;
-    int need = samples;
+    int needSamples = samples;
 
-    while (need > 0)
+    // Debug-only: log how much data KOS requests per second.
+    // This is NOT guaranteed to equal the actual playback rate.
+    static uint64_t s_lastMs = 0;
+    static uint32_t s_accumBytes = 0;
+    static uint32_t s_accumCalls = 0;
+    const uint64_t nowMs = timer_ms_gettime64();
+    if (s_lastMs == 0)
+        s_lastMs = nowMs;
+    if (smp_req > 0)
+    {
+        s_accumBytes += (uint32_t)smp_req;
+        s_accumCalls++;
+    }
+    const uint64_t dtMs = nowMs - s_lastMs;
+    if (dtMs >= 1000)
+    {
+        const uint32_t bytesPerSec = (uint32_t)((uint64_t)s_accumBytes * 1000ULL / (dtMs ? dtMs : 1));
+        const uint32_t samplesPerSec = bytesPerSec / 2;
+        const uint32_t callsPerSec = (uint32_t)((uint64_t)s_accumCalls * 1000ULL / (dtMs ? dtMs : 1));
+        s_accumBytes = 0;
+        s_accumCalls = 0;
+        s_lastMs = nowMs;
+
+        const uint32_t avail = dc_ring_avail(g_adlibRingRead, g_adlibRingWrite);
+        dbgio_printf("[dc] [music] stream stats: req=%dB calls/s~%u reqB/s~%u reqS/s~%u ring_avail=%u\n",
+                     smp_req,
+                     (unsigned int)callsPerSec,
+                     (unsigned int)bytesPerSec,
+                     (unsigned int)samplesPerSec,
+                     (unsigned int)avail);
+    }
+
+    while (needSamples > 0)
     {
         dc_adlib_ring_lock();
         const uint32_t rd0 = g_adlibRingRead;
@@ -209,7 +240,7 @@ static void* dc_adlib_stream_cb(snd_stream_hnd_t /*hnd*/, int smp_req, int* smp_
         }
 
         uint32_t rd = rd0;
-        uint32_t chunk = (uint32_t)need;
+        uint32_t chunk = (uint32_t)needSamples;
         if (chunk > avail)
             chunk = avail;
 
@@ -227,14 +258,14 @@ static void* dc_adlib_stream_cb(snd_stream_hnd_t /*hnd*/, int smp_req, int* smp_
         dc_adlib_ring_unlock();
 
         out += chunk;
-        need -= (int)chunk;
+        needSamples -= (int)chunk;
     }
 
     // If underrun, zero-fill remainder.
-    if (need > 0)
-        fitd_memset(out, 0, (size_t)need * 2);
+    if (needSamples > 0)
+        fitd_memset(out, 0, (size_t)needSamples * 2);
 
-    *smp_recv = samples;
+    *smp_recv = bytes;
     return g_adlibPcmBuf;
 }
 
@@ -275,12 +306,10 @@ static void* dc_adlib_synth_thread(void* /*param*/)
 
     uint32_t localSerial = g_adlibSongSerial;
 
-    // YM3812 runs at 22050Hz; AICA consumes ~44100Hz, so upsample 2x.
-    static constexpr int kOutChunkSamples = 1024;
-    static constexpr int kInChunkSamples = kOutChunkSamples / 2;
-    static constexpr int kInChunkBytes = kInChunkSamples * 2;
-    static uint8_t s_inBuf[kInChunkBytes] __attribute__((aligned(32)));
-    static int16_t s_outBuf[kOutChunkSamples] __attribute__((aligned(32)));
+    // YM3812 generates at 44100Hz; keep the stream at 44100Hz (no resampling).
+    static constexpr int kChunkSamples = 1024;
+    static constexpr int kChunkBytes = kChunkSamples * 2;
+    static int16_t s_out[kChunkSamples] __attribute__((aligned(32)));
 
     while (g_adlibSynthThreadRun)
     {
@@ -318,22 +347,23 @@ static void* dc_adlib_synth_thread(void* /*param*/)
         if (avail < kLowWater)
         {
             const uint32_t deficit = kLowWater - avail;
-            chunks = 1 + (int)((deficit + (uint32_t)kOutChunkSamples - 1) / (uint32_t)kOutChunkSamples);
+            chunks = 1 + (int)((deficit + (uint32_t)kChunkSamples - 1) / (uint32_t)kChunkSamples);
             if (chunks > 12) chunks = 12;
         }
 
         while (g_adlibSynthThreadRun && chunks-- > 0)
         {
             const uint32_t space = dc_ring_space(g_adlibRingRead, g_adlibRingWrite);
-            if (space < (uint32_t)kOutChunkSamples)
+            if (space < (uint32_t)kChunkSamples)
                 break;
 
-            fitd_memset(s_inBuf, 0, (size_t)kInChunkBytes);
-            musicUpdate(nullptr, s_inBuf, kInChunkBytes);
+            fitd_memset(s_out, 0, (size_t)kChunkBytes);
+            musicUpdate(nullptr, (uint8*)s_out, kChunkBytes);
 
             const uint32_t serialAfter = g_adlibSongSerial;
             if (serialAfter != localSerial || g_adlibFlushRequested)
             {
+				g_adlibFlushReason = (serialAfter != localSerial) ? "song_serial_change" : "flush_requested";
                 dc_adlib_ring_lock();
                 dc_adlib_ring_flush_locked();
                 dc_adlib_ring_unlock();
@@ -342,8 +372,8 @@ static void* dc_adlib_synth_thread(void* /*param*/)
                 continue;
             }
 
-            dc_adlib_upsample_x2((const int16_t*)s_inBuf, s_outBuf, (uint32_t)kInChunkSamples);
-            dc_adlib_ring_write_chunk(s_outBuf, (uint32_t)kOutChunkSamples);
+            dc_adlib_atten(s_out, s_out, (uint32_t)kChunkSamples);
+            dc_adlib_ring_write_chunk(s_out, (uint32_t)kChunkSamples);
         }
     }
 
@@ -370,6 +400,7 @@ void dc_adlib_notify_song_changed()
 {
     const uint32_t serial = g_adlibSongSerial;
     g_adlibSongSerial = serial + 1;
+    g_adlibFlushReason = "song_change";
     g_adlibFlushRequested = true;
 }
 
@@ -401,25 +432,24 @@ void dc_music_play_adlib(int musicVolume)
     if (!g_adlibStreamStarted)
     {
         dc_adlib_ring_lock();
+		g_adlibFlushReason = "prime_start";
         dc_adlib_ring_flush_locked();
         dc_adlib_ring_unlock();
         g_adlibFlushRequested = false;
 
-        static constexpr int kPrimeOutSamples = 1024;
-        static constexpr int kPrimeInSamples = kPrimeOutSamples / 2;
-        static constexpr int kPrimeInBytes = kPrimeInSamples * 2;
-        static uint8_t s_primeIn[kPrimeInBytes] __attribute__((aligned(32)));
-        static int16_t s_primeOut[kPrimeOutSamples] __attribute__((aligned(32)));
+        static constexpr int kPrimeSamples = 1024;
+        static constexpr int kPrimeBytes = kPrimeSamples * 2;
+        static int16_t s_prime[kPrimeSamples] __attribute__((aligned(32)));
 
         const uint32_t primeSamples = 16384;
         int tries = 0;
         const int maxTries = 32;
         while (dc_ring_avail(g_adlibRingRead, g_adlibRingWrite) < primeSamples && tries++ < maxTries)
         {
-            fitd_memset(s_primeIn, 0, (size_t)kPrimeInBytes);
-            musicUpdate(nullptr, s_primeIn, kPrimeInBytes);
-            dc_adlib_upsample_x2((const int16_t*)s_primeIn, s_primeOut, (uint32_t)kPrimeInSamples);
-            dc_adlib_ring_write_chunk(s_primeOut, (uint32_t)kPrimeOutSamples);
+            fitd_memset(s_prime, 0, (size_t)kPrimeBytes);
+            musicUpdate(nullptr, (uint8*)s_prime, kPrimeBytes);
+            dc_adlib_atten(s_prime, s_prime, (uint32_t)kPrimeSamples);
+            dc_adlib_ring_write_chunk(s_prime, (uint32_t)kPrimeSamples);
         }
     }
 

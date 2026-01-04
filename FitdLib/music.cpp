@@ -58,11 +58,9 @@ static inline void dc_music_unlock()
 
 #define OPL_INTERNAL_FREQ    3579545
 
-#ifdef DREAMCAST
-static constexpr int kOplOutputHz = 22050;
-#else
+// Use 44100Hz OPL output on all platforms. This preserves timbre/harmonics
+// better than 22050Hz and matches the historical SDL path.
 static constexpr int kOplOutputHz = 44100;
-#endif
 
 void callMusicUpdate(void);
 
@@ -1375,10 +1373,15 @@ void playMusic(int musicNumber)
 	}
 	
 	if(osystem_playTrack(trackNumber))
+    {
+#ifdef DREAMCAST
+        dbgio_printf("[dc] [music] playMusic id=%d track=%d -> using CD track\n", musicNumber, trackNumber);
+#endif
 		return;
+    }
 
 #ifdef DREAMCAST
-    dbgio_printf("[dc] [music] playMusic id=%d track=%d (adlib)\n", musicNumber, trackNumber);
+    dbgio_printf("[dc] [music] playMusic id=%d track=%d (adlib) gameId=%d\n", musicNumber, trackNumber, (int)g_gameId);
 #endif
 
     //  if(musicEnabled)
@@ -1403,6 +1406,10 @@ void playMusic(int musicNumber)
                 // Validate ADL blob basics to catch bad decompression/reads.
                 extern int getPakSize(const char* name, int index);
                 const int pakSize = getPakSize("LISTMUS", listMusIndex);
+                if (pakSize <= 0)
+                {
+                    dbgio_printf("[dc] [music] WARNING: LISTMUS idx=%d size=%d (invalid?)\n", listMusIndex, pakSize);
+                }
                 if (musicPtr && pakSize > 0)
                 {
                     const unsigned char* p = (const unsigned char*)musicPtr;
