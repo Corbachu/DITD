@@ -177,7 +177,9 @@ static void* dc_adlib_stream_cb(snd_stream_hnd_t /*hnd*/, int smp_req, int* smp_
     if (!s_loggedOnce)
     {
         s_loggedOnce = true;
+#ifdef DEBUG_MUSIC_STREAM
         dbgio_printf("[dc] [music] adlib stream cb active (req=%d)\n", smp_req);
+#endif
     }
 
     // KOS passes/receives BYTES here (despite the header naming).
@@ -218,12 +220,14 @@ static void* dc_adlib_stream_cb(snd_stream_hnd_t /*hnd*/, int smp_req, int* smp_
         s_lastMs = nowMs;
 
         const uint32_t avail = dc_ring_avail(g_adlibRingRead, g_adlibRingWrite);
+#ifdef DEBUG_MUSIC_STREAM
         dbgio_printf("[dc] [music] stream stats: req=%dB calls/s~%u reqB/s~%u reqS/s~%u ring_avail=%u\n",
                      smp_req,
                      (unsigned int)callsPerSec,
                      (unsigned int)bytesPerSec,
                      (unsigned int)samplesPerSec,
                      (unsigned int)avail);
+#endif
     }
 
     while (needSamples > 0)

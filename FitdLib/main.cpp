@@ -120,17 +120,62 @@ bool fileExists(const char* name)
 	return false;
 }
 
-int getCVarsIdx(enumCVars searchedType) // TODO: optimize by reversing the table....
+// ~CA: Reverse Lookup Cache scanning
+int getCVarsIdx(enumCVars searchedType) 
 {
-	for(int i=0;i<CVars.size();i++)
-	{
-		if(currentCVarTable[i] == -1)
+	// O(1) reverse lookup cache (table is fixed per game).
+	// This avoids repeated linear scans across hot paths.
+	static std::array<int, (size_t)UNKNOWN_CVAR> s_cvarToIdx;
+	static bool s_mapValid = false;
+	static int* s_lastTable = nullptr;
+	static size_t s_lastSize = 0;
+
+	auto rebuild = [&]() {
+		s_cvarToIdx.fill(-1);
+		if (!currentCVarTable)
 		{
-			ASSERT(0);
+			s_mapValid = true;
+			s_lastTable = currentCVarTable;
+			s_lastSize = CVars.size();
+			return;
 		}
 
+		for (int i = 0; i < (int)CVars.size(); ++i)
+		{
+			const int v = currentCVarTable[i];
+			if (v == -1)
+			{
+				ASSERT(0);
+				continue;
+			}
+			if (v >= 0 && v < (int)UNKNOWN_CVAR)
+			{
+				// First wins if duplicates exist (shouldn't in a sane table).
+				if (s_cvarToIdx[(size_t)v] < 0)
+					s_cvarToIdx[(size_t)v] = i;
+			}
+		}
+		s_mapValid = true;
+		s_lastTable = currentCVarTable;
+		s_lastSize = CVars.size();
+	};
 
-		if(currentCVarTable[i] == searchedType)
+	if (!s_mapValid || s_lastTable != currentCVarTable || s_lastSize != CVars.size())
+		rebuild();
+
+	const int idx = (searchedType >= 0 && searchedType < UNKNOWN_CVAR)
+		? s_cvarToIdx[(size_t)searchedType]
+		: -1;
+	if (idx >= 0)
+		return idx;
+
+	// Fallback to linear scan (keeps behavior/asserts consistent if the cache
+	// wasn't populated for some reason).
+	for (int i = 0; i < (int)CVars.size(); ++i)
+	{
+		if (currentCVarTable[i] == -1)
+			ASSERT(0);
+		if (currentCVarTable[i] == searchedType)
 			return i;
 	}
 
@@ -3128,6 +3173,10 @@ void AllRedraw(int flagFlip)
 {
     uiLayer.fill(0);
 
+#ifdef DREAMCAST
+	bool dcDidPresent = false;
+#endif
+
 	//if(flagFlip == 2)
 	{
 		if(cameraBackgroundChanged)
@@ -3290,6 +3339,9 @@ void AllRedraw(int flagFlip)
 			{
 				//makeBlackPalette();
 				osystem_flip(NULL);
+				#ifdef DREAMCAST
+				dcDidPresent = true;
+				#endif
 				FadeInPhys(0x10,0);
 				lightVar2 = 0;
 			}
@@ -3307,9 +3359,15 @@ void AllRedraw(int flagFlip)
 	{
 	}
 
-	//    osystem_stopFrame();
-
-	//	osystem_flip(NULL);
+	// Present the composed frame on Dreamcast.
+	// On other platforms, presentation is handled by their backend.
+	#ifdef DREAMCAST
+	if (flagFlip && !dcDidPresent)
+	{
+		// physicalScreen/uiLayer were already updated during rendering.
+		osystem_drawBackground();
+	}
+	#endif
 
 	flagRedraw = 0;
 }

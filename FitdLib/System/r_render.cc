@@ -71,7 +71,11 @@ void RGL_RenderPolys()
 
     glMatrixMode(GL_PROJECTION);
     glLoadIdentity();
-    glOrtho(0.0f, 320.0f, 200.0f, 0.0f, 0.2f, -50000.0f);
+    // The engine feeds already-projected X/Y in 320x200 game-space.
+    // Z is carried through mostly for ordering/debugging, and values can be
+    // 0 or have a wide dynamic range depending on scene.
+    // Use a symmetric, very wide Z range to avoid clipping everything away.
+    glOrtho(0.0f, 320.0f, 200.0f, 0.0f, -100000.0f, 100000.0f);
 
     glMatrixMode(GL_MODELVIEW);
     glLoadIdentity();
