@@ -1,5 +1,5 @@
 //----------------------------------------------------------------------------
-//  Dream In The Dark vars (Game Code)
+//  Dream In The Dark Variables (Game Code)
 //----------------------------------------------------------------------------
 //
 //  Copyright (c) 2025  yaz0r/jimmu/FITD Team
@@ -291,6 +291,7 @@ extern char* PtrCadre;
 
 //extern OSystem osystem;
 extern unsigned char frontBuffer[320*200];
+extern unsigned char physicalScreen[320*200];
 
 extern unsigned int timer;
 extern unsigned int timeGlobal;

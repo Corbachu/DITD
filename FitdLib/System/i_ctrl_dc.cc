@@ -18,6 +18,8 @@
 
 #include "common.h"
 
+#include "System/dc_timing.h"
+
 #include <kos.h>
 
 #include <cstdarg>
@@ -999,13 +1001,10 @@ void I_ShutdownControl(void)
 {
 }
 
-// TODO: Need to use whatever framerate Alone in the Dark runs at...
 static int I_GetTime(void)
 {
-    uint32 t = timer_ms_gettime64();
-
-    // more complex than "t*35/1000" to give more accuracy
-    return (t / 1000) * 30 + (t % 1000) * 30 / 1000;
+    const uint64_t t = timer_ms_gettime64();
+    return DC_MsToTics(t);
 }
 
 
