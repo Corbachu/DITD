@@ -1,0 +1,50 @@
+# libSH4simd  
+### High‑performance SIMD math library for Sega Dreamcast / SH‑4 (KallistiOS)
+
+`libSH4simd` is a header‑only SIMD math and compute library designed specifically
+for the **Hitachi SH‑4** CPU used in the Sega Dreamcast.  
+It uses **GCC vector extensions** (`vector_size`) to generate fast paired‑float
+instructions and SH‑4‑friendly math kernels.
+
+This library is intended for:
+
+- 2D/3D math (vectors, matrices, transforms)
+- Audio mixing and DSP‑style operations
+- Dreamcast vertex pipelines (PVR + GLdc)
+- General SIMD‑accelerated compute on SH‑4
+
+It is lightweight, dependency‑free, and integrates cleanly into **KallistiOS**.
+
+---
+
+## Features
+
+### SIMD‑accelerated `simd_array<T,N>`  
+- Full `std::array` API parity  
+- Structured bindings (`get<>`, `tuple_size`, `tuple_element`)  
+- Vectorized math ops: `+ - * /`, dot, length, normalize  
+- SH‑4‑friendly 64‑bit vector lanes (`vector_size(8)`)
+
+### Matrix types (`mat2f`, `mat3f`, `mat4f`)  
+- Column‑major (OpenGL/GLdc style)  
+- Constructors for identity, translation, scale, rotation  
+- Built on top of SIMD arrays
+
+### SH‑4 optimized kernels  
+- Matrix × vector  
+- Matrix × matrix  
+- Position and direction transforms  
+- Ready for inline SH‑4 assembly (`ftrv`) if you want to extend it
+
+### Audio SIMD  
+- 4‑sample SIMD mixing (`sample4i16`)  
+- Saturating arithmetic  
+- Add/mix blocks for stereo or quad layouts
+
+### Dreamcast vertex pipelines  
+- DC‑friendly vertex transform helpers  
+- MVP transform, projection, viewport mapping  
+- GLdc‑specific helpers for vertex arrays and normal transforms
+
+---
+
