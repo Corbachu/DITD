@@ -42,6 +42,12 @@ char OPLinitialized = 0;
 
 #define OPL_INTERNAL_FREQ    3579545
 
+#ifdef DREAMCAST
+static constexpr int kOplOutputHz = 22050;
+#else
+static constexpr int kOplOutputHz = 44100;
+#endif
+
 void callMusicUpdate(void);
 
 struct channelTable2Element
@@ -521,9 +527,11 @@ void sendAdlib(int regIdx, int value)
     YM3812Write(0,1,value);
 }
 
-#define musicSync 1500
+// How often (in output bytes) to tick the music command stream.
+// Historically at 44100Hz this was 1500 bytes ~= 17ms.
+static int musicSyncBytes = 1500;
 int musicTimer = 0;
-int nextUpdateTimer = musicSync;
+int nextUpdateTimer = 1500;
 
 int musicUpdate(void *udata, uint8 *stream, int len)
 {
@@ -551,7 +559,7 @@ int musicUpdate(void *udata, uint8 *stream, int len)
             {
                 callMusicUpdate();
 
-                nextUpdateTimer += musicSync;
+                nextUpdateTimer += musicSyncBytes;
             }
         }
     }
@@ -707,7 +715,14 @@ int initialialize(void* dummy)
 
     //OPLBuildTables(FMOPL_ENV_BITS_HQ, FMOPL_EG_ENT_HQ);
 
-    YM3812Init(1,OPL_INTERNAL_FREQ,44100);
+    YM3812Init(1, OPL_INTERNAL_FREQ, kOplOutputHz);
+
+    // Keep the music driver's real-time tick frequency consistent when
+    // changing output sample rate. Ensure an even byte count (16-bit samples).
+    musicSyncBytes = (kOplOutputHz * 1500) / 44100;
+    if (musicSyncBytes < 2) musicSyncBytes = 2;
+    if (musicSyncBytes & 1) musicSyncBytes--;
+    nextUpdateTimer = musicSyncBytes;
     /*  virtualOpl = OPLCreate(OPL_TYPE_YM3812, OPL_INTERNAL_FREQ, 44100);
 
     if(!virtualOpl)

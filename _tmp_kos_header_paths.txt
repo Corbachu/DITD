@@ -1,2 +1,0 @@
-/opt/toolchains/dc/kos/kernel/arch/dreamcast/include/dc/cdrom.h
-/opt/toolchains/dc/kos/kernel/arch/dreamcast/include/dc/fs_iso9660.h

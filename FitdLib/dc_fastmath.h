@@ -1,8 +1,10 @@
 //----------------------------------------------------------------------------
-//  Dream In The Dark SH-4 Math Code (Dreamcast / KOS)
+//  Dream In The Dark SH-4 Math Code
 //----------------------------------------------------------------------------
 //
-//  Copyright (c) 2025  yaz0r/jimmu/FITD Team
+//  Dreamcast SH-4 fast-math helpers.
+//
+//  Copyright (c) 2025  Corbin Annis/yaz0r/jimmu/FITD Team
 //  Copyright (C) 1999-2025  The EDGE Team
 //
 //  This program is free software; you can redistribute it and/or
@@ -15,14 +17,12 @@
 //  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 //  GNU General Public License for more details.
 //
+//  ----------------------------------------------------------------------------
+//  KOS provides SH-4 math intrinsics in <dc/fmath.h> (fsin/fcos/fsqrt/etc).
+//  These are generally much faster than libm on the target.
 //----------------------------------------------------------------------------
 
 #pragma once
-
-// Dreamcast SH-4 fast-math helpers.
-//
-// KOS provides SH-4 math intrinsics in <dc/fmath.h> (fsin/fcos/fsqrt/etc).
-// These are generally much faster than libm on the target.
 
 #ifdef DREAMCAST
 extern "C" {

@@ -1,5 +1,5 @@
 //----------------------------------------------------------------------------
-//  Dream In The Dark object (Game Logic)
+//  Dream In The Dark 3D Actor Rendering (Game Logic)
 //----------------------------------------------------------------------------
 //
 //  Copyright (c) 2025  yaz0r/jimmu/FITD Team

@@ -1,9 +1,0 @@
-/opt/toolchains/dc/kos/kernel/arch/dreamcast/include/arch/init_flags.h:46:#define KOS_INIT_FLAGS_ARCH(flags) \
-/opt/toolchains/dc/kos/kernel/arch/dreamcast/include/arch/init_flags.h:52:    KOS_INIT_FLAG(flags, INIT_CDROM, cdrom_init); \
-/opt/toolchains/dc/kos/kernel/arch/dreamcast/include/arch/init_flags.h:53:    KOS_INIT_FLAG(flags, INIT_CDROM, cdrom_shutdown); \
-/opt/toolchains/dc/kos/kernel/arch/dreamcast/include/arch/init_flags.h:54:    KOS_INIT_FLAG(flags, INIT_CDROM, fs_iso9660_init); \
-/opt/toolchains/dc/kos/kernel/arch/dreamcast/include/arch/init_flags.h:55:    KOS_INIT_FLAG(flags, INIT_CDROM, fs_iso9660_shutdown); \
-/opt/toolchains/dc/kos/kernel/arch/dreamcast/include/arch/init_flags.h:91:#define INIT_DEFAULT_ARCH   (INIT_MAPLE_ALL | INIT_CDROM)
-/opt/toolchains/dc/kos/kernel/arch/dreamcast/include/arch/init_flags.h:107:#define INIT_CDROM          0x00100000  /**< \brief Enable CD-ROM support */
-/opt/toolchains/dc/kos/include/kos/init.h:77:    KOS_INIT_FLAGS_ARCH(flags)
-/opt/toolchains/dc/kos/include/kos/init.h:144:                         INIT_LIBRARY | INIT_DEFAULT_ARCH)

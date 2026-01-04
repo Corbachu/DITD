@@ -492,21 +492,21 @@ void AITD1_ReadBook(int index, int type)
 #endif
     switch (type)
     {
-    case 0: // READ_MESSAGE
+    case 0: // ~CA: READ_MESSAGE (LETTRE is french for letter)
     {
         LoadPak("ITD_RESS", AITD1_LETTRE, aux);
         turnPageFlag = 0;
         Lire(index, 60, 10, 245, 190, 0, 26, 0);
         break;
     }
-    case 1: // READ_BOOK
+    case 1: // ~CA: READ_BOOK (LIVRE is french for book)
     {
         LoadPak("ITD_RESS", AITD1_LIVRE, aux);
         turnPageFlag = 1;
         Lire(index, 48, 2, 260, 197, 0, 26, 0);
         break;
     }
-    case 2: // READ_CARNET
+    case 2: //~CA: READ_NOTEBOOK (CARNET is french for notebook)
     {
         LoadPak("ITD_RESS", AITD1_CARNET, aux);
         turnPageFlag = 0;

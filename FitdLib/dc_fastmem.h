@@ -1,8 +1,10 @@
 //----------------------------------------------------------------------------
-//  Dream In The Dark dc fastmem (Dreamcast / KOS)
+//  Dream In The Dark SH-4 Memory Helpers
 //----------------------------------------------------------------------------
 //
-//  Copyright (c) 2025  yaz0r/jimmu/FITD Team
+//  Dreamcast SH-4 fast memory helpers.
+//
+//  Copyright (c) 2025  Corbin Annis/yaz0r/jimmu/FITD Team
 //  Copyright (C) 1999-2025  The EDGE Team
 //
 //  This program is free software; you can redistribute it and/or
@@ -14,18 +16,15 @@
 //  but WITHOUT ANY WARRANTY; without even the implied warranty of
 //  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 //  GNU General Public License for more details.
+//----------------------------------------------------------------------------
+//  This is the "aggressive" path: we opportunistically use the SH-4 Store Queue
+//  API (KOS: <dc/sq.h>) for large copies/sets when alignment allows.
 //
+//  We intentionally do NOT override libc memcpy/memset globally; instead call
+//  fitd_memcpy/fitd_memset in hotspots.
 //----------------------------------------------------------------------------
 
 #pragma once
-
-// Dreamcast SH-4 fast memory helpers.
-//
-// This is the "aggressive" path: we opportunistically use the SH-4 Store Queue
-// API (KOS: <dc/sq.h>) for large copies/sets when alignment allows.
-//
-// We intentionally do NOT override libc memcpy/memset globally; instead call
-// fitd_memcpy/fitd_memset in hotspots.
 
 #include <cstddef>
 #include <cstdint>

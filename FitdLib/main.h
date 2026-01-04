@@ -69,6 +69,8 @@ void drawZv(const ZVStruct& localZv);
 
 ///
 void readBook(int index, int type);
+
+/// int Read() - Lire is french for Read 
 int Lire(int index, int left, int top, int right, int bottom, int mode, int color, int shadow);
 
 void SetProjection(int centerX, int centerY, int x, int y, int z);

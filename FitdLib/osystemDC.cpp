@@ -45,6 +45,8 @@ extern "C" {
 #include <kos/dbgio.h>
 }
 
+#include <kos/thread.h>
+
 // Start building a native PVR paletted path (PAL8)
 // Enable with -DUSE_PVR_PAL8 to switch from GLdc blit to PVR renderer.
 #ifdef USE_PVR_PAL8
@@ -88,15 +90,166 @@ static bool g_soundInited = false;
 
 //------------------------------------------------------------------------------
 // ADL/OPL music streaming via KOS snd_stream
+// TODO: move this into system/musicDC.cc and system/s_musicdc.cc 
 //------------------------------------------------------------------------------
 static bool g_streamInited = false;
 static snd_stream_hnd_t g_adlibStream = SND_STREAM_INVALID;
 static bool g_adlibStreamStarted = false;
 
-static constexpr uint32_t kAdlibHz = 44100;
+static volatile bool g_adlibPollThreadRun = false;
+static kthread_t* g_adlibPollThread = nullptr;
+
+static volatile bool g_adlibSynthThreadRun = false;
+static kthread_t* g_adlibSynthThread = nullptr;
+
+static constexpr uint32_t kAdlibHz = 22050;
 // Buffer size is per-channel bytes; 16-bit mono => bytes = samples * 2.
-static constexpr int kAdlibBufBytes = 16 * 1024;
+// Keep this relatively small so the callback doesn't try to synthesize
+// huge bursts of audio at once (which can miss real-time deadlines).
+static constexpr int kAdlibBufBytes = 8 * 1024;
 static uint8_t g_adlibPcmBuf[kAdlibBufBytes] __attribute__((aligned(32)));
+
+// Ring buffer for pre-generated PCM (single producer: synth thread, single
+// consumer: snd_stream callback). Keep a decent amount buffered to survive
+// renderer/model load spikes.
+static constexpr uint32_t kAdlibRingSamples = 32768; // ~1.49s @ 22050Hz
+static int16_t g_adlibRing[kAdlibRingSamples] __attribute__((aligned(32)));
+static volatile uint32_t g_adlibRingRead = 0;
+static volatile uint32_t g_adlibRingWrite = 0;
+
+static FORCEINLINE uint32_t dc_ring_avail(uint32_t rd, uint32_t wr)
+{
+    return (wr >= rd) ? (wr - rd) : (kAdlibRingSamples - (rd - wr));
+}
+
+static FORCEINLINE uint32_t dc_ring_space(uint32_t rd, uint32_t wr)
+{
+    // Keep one slot empty to distinguish full vs empty.
+    return (kAdlibRingSamples - 1) - dc_ring_avail(rd, wr);
+}
+
+static void* dc_adlib_poll_thread(void* /*param*/)
+{
+    thd_set_label(thd_get_current(), "adlib_stream");
+
+    while (g_adlibPollThreadRun)
+    {
+        if (g_adlibStreamStarted && g_adlibStream != SND_STREAM_INVALID)
+            snd_stream_poll(g_adlibStream);
+
+        // Poll frequently so we don't under-run when the render thread stalls.
+        thd_sleep(2);
+    }
+
+    return nullptr;
+}
+
+static void ensure_adlib_poll_thread()
+{
+    if (g_adlibPollThreadRun)
+        return;
+
+    g_adlibPollThreadRun = true;
+    g_adlibPollThread = thd_create(true, dc_adlib_poll_thread, nullptr);
+    if (!g_adlibPollThread)
+    {
+        g_adlibPollThreadRun = false;
+        return;
+    }
+
+    // PRIO_DEFAULT is 10; lower is higher priority.
+    // Give audio a small boost so heavy rendering doesn't starve polling.
+    thd_set_prio(g_adlibPollThread, 5);
+}
+
+static void* dc_adlib_synth_thread(void* /*param*/)
+{
+    thd_set_label(thd_get_current(), "adlib_synth");
+
+    // Generate audio in small chunks so we can interleave with the rest of the
+    // system without long stalls.
+    static constexpr int kChunkSamples = 512;
+    static constexpr int kChunkBytes = kChunkSamples * 2;
+    static uint8_t s_chunkBuf[kChunkBytes] __attribute__((aligned(32)));
+
+    while (g_adlibSynthThreadRun)
+    {
+        // If stream isn't running yet, idle.
+        if (!g_adlibStreamStarted)
+        {
+            thd_sleep(10);
+            continue;
+        }
+
+        uint32_t rd = g_adlibRingRead;
+        uint32_t wr = g_adlibRingWrite;
+        const uint32_t space = dc_ring_space(rd, wr);
+
+        // If we have plenty of buffered audio, back off.
+        if (space < (uint32_t)kChunkSamples)
+        {
+            thd_sleep(2);
+            continue;
+        }
+
+        // Produce kChunkSamples into a temporary buffer.
+        std::memset(s_chunkBuf, 0, (size_t)kChunkBytes);
+        musicUpdate(nullptr, s_chunkBuf, kChunkBytes);
+
+        // Copy into ring (handle wrap).
+        const int16_t* src = (const int16_t*)s_chunkBuf;
+        uint32_t remaining = (uint32_t)kChunkSamples;
+        while (remaining > 0)
+        {
+            rd = g_adlibRingRead;
+            wr = g_adlibRingWrite;
+            const uint32_t space2 = dc_ring_space(rd, wr);
+            if (space2 == 0)
+                break;
+
+            uint32_t toWrite = remaining;
+            if (toWrite > space2)
+                toWrite = space2;
+
+            uint32_t chunk = toWrite;
+            const uint32_t tillWrap = kAdlibRingSamples - wr;
+            if (chunk > tillWrap)
+                chunk = tillWrap;
+
+            std::memcpy(&g_adlibRing[wr], src, (size_t)chunk * 2);
+
+            wr += chunk;
+            if (wr >= kAdlibRingSamples)
+                wr = 0;
+
+            g_adlibRingWrite = wr;
+            src += chunk;
+            remaining -= chunk;
+        }
+
+        // Yield a bit; this thread is intentionally cooperative.
+        thd_sleep(1);
+    }
+
+    return nullptr;
+}
+
+static void ensure_adlib_synth_thread()
+{
+    if (g_adlibSynthThreadRun)
+        return;
+
+    g_adlibSynthThreadRun = true;
+    g_adlibSynthThread = thd_create(true, dc_adlib_synth_thread, nullptr);
+    if (!g_adlibSynthThread)
+    {
+        g_adlibSynthThreadRun = false;
+        return;
+    }
+
+    // Slightly lower priority than poll thread, still above default.
+    thd_set_prio(g_adlibSynthThread, 6);
+}
 
 static void* dc_adlib_stream_cb(snd_stream_hnd_t /*hnd*/, int smp_req, int* smp_recv)
 {
@@ -117,13 +270,52 @@ static void* dc_adlib_stream_cb(snd_stream_hnd_t /*hnd*/, int smp_req, int* smp_
     if (samples < 0)
         samples = 0;
 
-    const int bytes = samples * 2;
-    std::memset(g_adlibPcmBuf, 0, (size_t)bytes);
+    int16_t* out = (int16_t*)g_adlibPcmBuf;
+    int need = samples;
+    int underrun = 0;
 
-    // musicUpdate() outputs signed 16-bit PCM into the provided byte buffer.
-    // If the OPL driver isn't initialized or no song is loaded, it will leave
-    // the buffer untouched, so we pre-zero it above.
-    musicUpdate(nullptr, g_adlibPcmBuf, bytes);
+    while (need > 0)
+    {
+        const uint32_t rd0 = g_adlibRingRead;
+        const uint32_t wr0 = g_adlibRingWrite;
+        const uint32_t avail = dc_ring_avail(rd0, wr0);
+        if (avail == 0)
+        {
+            std::memset(out, 0, (size_t)need * 2);
+            underrun += need;
+            break;
+        }
+
+        uint32_t toCopy = (uint32_t)need;
+        if (toCopy > avail)
+            toCopy = avail;
+
+        uint32_t chunk = toCopy;
+        const uint32_t tillWrap = kAdlibRingSamples - rd0;
+        if (chunk > tillWrap)
+            chunk = tillWrap;
+
+        std::memcpy(out, &g_adlibRing[rd0], (size_t)chunk * 2);
+
+        uint32_t rd1 = rd0 + chunk;
+        if (rd1 >= kAdlibRingSamples)
+            rd1 = 0;
+        g_adlibRingRead = rd1;
+
+        out += (int)chunk;
+        need -= (int)chunk;
+    }
+
+    if (underrun > 0)
+    {
+        static uint64_t s_lastLog = 0;
+        const uint64_t now = timer_ms_gettime64();
+        if (now - s_lastLog > 1000)
+        {
+            s_lastLog = now;
+            dbgio_printf("[dc] [music] underrun: %d samples\n", underrun);
+        }
+    }
 
     *smp_recv = samples;
     return g_adlibPcmBuf;
@@ -307,6 +499,11 @@ static void ensure_sound()
 
 static void dc_music_poll()
 {
+    // If the dedicated poll thread is running, never poll from the render thread.
+    // snd_stream_poll() isn't guaranteed to be re-entrant.
+    if (g_adlibPollThreadRun)
+        return;
+
     if (g_adlibStreamStarted && g_adlibStream != SND_STREAM_INVALID)
     {
         snd_stream_poll(g_adlibStream);
@@ -556,7 +753,7 @@ u32 osystem_startOfFrame()
     
     // Without throttling here, Dreamcast will run as fast as the CPU allows,
     // causing cutscenes, book pages, and gameplay timing to fly by.
-    constexpr uint32_t kFramesPerSecond = 25;
+    constexpr uint32_t kFramesPerSecond = 30;
     constexpr uint32_t kFrameMs = 1000 / kFramesPerSecond;
 
     static bool s_firstFrame = true;
@@ -795,9 +992,12 @@ void osystem_drawUILayer()
     // Composition handled in endOfFrame
 }
 
+// Set the 256-color palette from a raw byte array (RGBRGB...).
 void osystem_setPalette(unsigned char* palette)
 {
-    std::memcpy(g_palette.data(), palette, 256 * 3);
+    // ~CA: Change std::memcpy -> fitd_memcpy to avoid potential issues with
+    // overlapping memory regions.
+    fitd_memcpy(g_palette.data(), palette, 256 * 3);
 
 #ifdef DREAMCAST
     // Mirror rendererBGFX: treat palette bytes as already 0..255.
@@ -809,7 +1009,7 @@ void osystem_setPalette(unsigned char* palette)
         if ((int)maxc != s_lastMax)
         {
             s_lastMax = (int)maxc;
-            dbgio_printf("[dc] [palette] max=%u\n", (unsigned)maxc);
+            //dbgio_printf("[dc] [palette] max=%u\n", (unsigned)maxc);
         }
     }
 #endif
@@ -854,7 +1054,7 @@ void osystem_setPalette(palette_t* palette)
         if ((int)maxc != s_lastMax)
         {
             s_lastMax = (int)maxc;
-            dbgio_printf("[dc] [palette] max=%u\n", (unsigned)maxc);
+            //dbgio_printf("[dc] [palette] max=%u\n", (unsigned)maxc);
         }
     }
 #endif
@@ -886,7 +1086,7 @@ void osystem_CopyBlockPhys(unsigned char* videoBuffer, int left, int top, int ri
     {
         unsigned char* src = videoBuffer + left + y * 320;
         unsigned char* dst = physicalScreen + left + y * 320;
-        std::memcpy(dst, src, (right - left));
+        fitd_memcpy(dst, src, (right - left));
     }
 }
 
@@ -1173,6 +1373,12 @@ void osystem_playAdlib()
     {
         snd_stream_start(g_adlibStream, kAdlibHz, 0 /*mono*/);
         g_adlibStreamStarted = true;
+
+        // Keep the stream fed even if the main thread stalls.
+        ensure_adlib_poll_thread();
+        ensure_adlib_synth_thread();
+        // Prime immediately.
+        snd_stream_poll(g_adlibStream);
     }
 
     // Map engine 0..0x7F volume to KOS 0..255.
@@ -1261,7 +1467,7 @@ void osystem_playSample(char* samplePtr, int size)
         paddedLen = (paddedLen + 31u) & ~31u;
 
         std::vector<char> tmp(paddedLen, 0);
-        std::memcpy(tmp.data(), sampleData, (size_t)sampleBytes);
+        fitd_memcpy(tmp.data(), sampleData, (size_t)sampleBytes);
 
         // VOC PCM is unsigned 8-bit. The AICA's 8-bit PCM behaves like signed
         // in practice; converting avoids the heavy DC offset distortion.
