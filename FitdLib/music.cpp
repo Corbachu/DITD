@@ -23,6 +23,7 @@
 #ifdef DREAMCAST
 extern "C" {
 #include <kos/dbgio.h>
+#include <kos/thread.h>
 }
 #endif
 
@@ -40,6 +41,21 @@ struct FM_OPL* virtualOpl;
 
 char OPLinitialized = 0;
 
+#ifdef DREAMCAST
+static volatile int g_dc_music_lock = 0;
+
+static inline void dc_music_lock()
+{
+    while (__sync_lock_test_and_set(&g_dc_music_lock, 1))
+        thd_pass();
+}
+
+static inline void dc_music_unlock()
+{
+    __sync_lock_release(&g_dc_music_lock);
+}
+#endif
+
 #define OPL_INTERNAL_FREQ    3579545
 
 #ifdef DREAMCAST
@@ -49,6 +65,10 @@ static constexpr int kOplOutputHz = 44100;
 #endif
 
 void callMusicUpdate(void);
+
+#ifdef DREAMCAST
+static int callMusicDrv_unlocked(int commandArg, void* ptr);
+#endif
 
 struct channelTable2Element
 {
@@ -537,6 +557,9 @@ int musicUpdate(void *udata, uint8 *stream, int len)
 {
     if(OPLinitialized)
     {
+#ifdef DREAMCAST
+        dc_music_lock();
+#endif
         int fillStatus = 0;
 
         while(fillStatus < len)
@@ -557,11 +580,19 @@ int musicUpdate(void *udata, uint8 *stream, int len)
 
             if(musicTimer == nextUpdateTimer)
             {
+#ifdef DREAMCAST
+                callMusicDrv_unlocked(0, NULL);
+#else
                 callMusicUpdate();
+#endif
 
                 nextUpdateTimer += musicSyncBytes;
             }
         }
+
+#ifdef DREAMCAST
+        dc_music_unlock();
+#endif
     }
 
     return 0;
@@ -1254,6 +1285,24 @@ musicDrvFunctionType musicDrvFunc[14]=
 
 int callMusicDrv(int commandArg,void* ptr)
 {
+#ifdef DREAMCAST
+    dc_music_lock();
+    const int rc = callMusicDrv_unlocked(commandArg, ptr);
+    dc_music_unlock();
+    return rc;
+#else
+    if(!musicDrvFunc[commandArg])
+    {
+        assert(0);
+    }
+
+    return musicDrvFunc[commandArg](ptr);
+#endif
+}
+
+#ifdef DREAMCAST
+static int callMusicDrv_unlocked(int commandArg, void* ptr)
+{
     if(!musicDrvFunc[commandArg])
     {
         assert(0);
@@ -1261,6 +1310,7 @@ int callMusicDrv(int commandArg,void* ptr)
 
     return musicDrvFunc[commandArg](ptr);
 }
+#endif
 
 int initMusicDriver(void)
 {
@@ -1273,9 +1323,23 @@ void loadMusic(int param, char* musicPtr)
 {
 #ifdef DREAMCAST
     dbgio_printf("[dc] [music] loadMusic ptr=%p param=%d\n", (void*)musicPtr, param);
+    void dc_adlib_notify_song_changed();
+    // Drop any buffered PCM from the previous track immediately.
+    dc_adlib_notify_song_changed();
 #endif
-    callMusicDrv(3,musicPtr);
-    callMusicDrv(2,NULL);
+
+#ifdef DREAMCAST
+    dc_music_lock();
+    callMusicDrv_unlocked(3, musicPtr);
+    callMusicDrv_unlocked(2, NULL);
+    // Reset timing so the new song starts cleanly.
+    musicTimer = 0;
+    nextUpdateTimer = musicSyncBytes;
+    dc_music_unlock();
+#else
+    callMusicDrv(3, musicPtr);
+    callMusicDrv(2, NULL);
+#endif
 }
 
 int fadeParam[3];
@@ -1286,7 +1350,14 @@ int fadeMusic(int param1, int param2, int param3)
     fadeParam[1] = param2;
     fadeParam[2] = param3;
 
-    return callMusicDrv(5,&fadeParam);
+#ifdef DREAMCAST
+    dc_music_lock();
+    const int rc = callMusicDrv_unlocked(5, &fadeParam);
+    dc_music_unlock();
+    return rc;
+#else
+    return callMusicDrv(5, &fadeParam);
+#endif
 }
 
 void playMusic(int musicNumber)
@@ -1322,10 +1393,31 @@ void playMusic(int musicNumber)
             {
                 fadeMusic(0,0,0x40);
 
-                musicPtr = HQR_Get(listMus,musicNumber);
+                // Use the mapped track number for resource lookup as well.
+                // (AITD2 already has a mapping; other titles may need one too.)
+                const int listMusIndex = trackNumber;
+                musicPtr = HQR_Get(listMus, listMusIndex);
 
 #ifdef DREAMCAST
-                dbgio_printf("[dc] [music] HQR_Get LISTMUS idx=%d -> %p\n", musicNumber, (void*)musicPtr);
+                dbgio_printf("[dc] [music] HQR_Get LISTMUS idx=%d -> %p\n", listMusIndex, (void*)musicPtr);
+                // Validate ADL blob basics to catch bad decompression/reads.
+                extern int getPakSize(const char* name, int index);
+                const int pakSize = getPakSize("LISTMUS", listMusIndex);
+                if (musicPtr && pakSize > 0)
+                {
+                    const unsigned char* p = (const unsigned char*)musicPtr;
+                    const unsigned int ofs0 = (unsigned int)READ_LE_U32((void*)(p + 8));
+                    const unsigned int ofs10 = (unsigned int)READ_LE_U32((void*)(p + 8 + 10 * 4));
+                    const unsigned int seq = (unsigned int)READ_LE_U16((void*)(p + 0x34));
+                    dbgio_printf("[dc] [music] LISTMUS[%d] size=%d hdr[0..3]=%02X %02X %02X %02X musicParam=%02X regBD=%02X seqOfs=%u ofs0=%u ofs10=%u\n",
+                                 listMusIndex,
+                                 pakSize,
+                                 p[0], p[1], p[2], p[3],
+                                 p[0x3D], p[0x3C],
+                                 seq, ofs0, ofs10);
+                    if (seq >= (unsigned int)pakSize || (ofs0 && ofs0 >= (unsigned int)pakSize) || (ofs10 && ofs10 >= (unsigned int)pakSize))
+                        dbgio_printf("[dc] [music] WARNING: ADL offsets exceed size (size=%d)\n", pakSize);
+                }
 #endif
 
 				if(musicPtr)

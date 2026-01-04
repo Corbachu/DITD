@@ -66,6 +66,13 @@ extern "C" {
 }
 
 #if defined(DREAMCAST)
+	// Some codepaths use dc_dbgio_printf() while KOS provides dbgio_printf().
+	#define dc_dbgio_printf dbgio_printf
+#else
+	#define dc_dbgio_printf(...) do { fprintf(stderr, __VA_ARGS__); } while (0)
+#endif
+
+#if defined(DREAMCAST)
 FILE* Open(const char* filename, const char* mode) {
 	char fullpath[1024];
 	if (homePath[0] != '\0') {
@@ -4257,6 +4264,7 @@ void throwStoppedAt(int x, int z)
 
 void startGame(int startupFloor, int startupRoom, int allowSystemMenu)
 {
+	dc_dbgio_printf("[startGame] Starting game at floor %d, room %d, allowSystemMenu=%d\n", startupFloor, startupRoom, allowSystemMenu);
 	LoadWorld();
 	initVars();
 
