@@ -41,3 +41,4 @@ FitdLib/shaders/*.bin*
 
 # Local data assets
 data/
+tools/adl
