@@ -39,7 +39,7 @@ static void dc_debug_stage(const char* msg)
     for (int y = y0; y < 200; ++y)
     {
         unsigned char* row = uiLayer.data() + y * 320;
-        std::memset(row, 0, 320);
+        fitd_memset(row, 0, 320);
     }
 
     SetFont(PtrFont, 1);

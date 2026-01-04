@@ -47,7 +47,7 @@ void copyPalette(palette_t& source, palette_t& dest)
 
 void copyPalette(void* source, palette_t& dest)
 {
-    std::memcpy(dest.data(), source, sizeof(palette_t));
+    fitd_memcpy(dest.data(), source, sizeof(palette_t));
 }
 
 void convertPaletteIfRequired(palette_t& lpalette)

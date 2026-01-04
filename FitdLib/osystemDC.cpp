@@ -112,7 +112,7 @@ static uint8_t g_adlibPcmBuf[kAdlibBufBytes] __attribute__((aligned(32)));
 // Ring buffer for pre-generated PCM (single producer: synth thread, single
 // consumer: snd_stream callback). Keep a decent amount buffered to survive
 // renderer/model load spikes.
-static constexpr uint32_t kAdlibRingSamples = 32768; // ~1.49s @ 22050Hz
+static constexpr uint32_t kAdlibRingSamples = 65536; // ~2.97s @ 22050Hz
 static int16_t g_adlibRing[kAdlibRingSamples] __attribute__((aligned(32)));
 static volatile uint32_t g_adlibRingRead = 0;
 static volatile uint32_t g_adlibRingWrite = 0;
@@ -138,7 +138,7 @@ static void* dc_adlib_poll_thread(void* /*param*/)
             snd_stream_poll(g_adlibStream);
 
         // Poll frequently so we don't under-run when the render thread stalls.
-        thd_sleep(2);
+        thd_sleep(1);
     }
 
     return nullptr;
@@ -159,7 +159,7 @@ static void ensure_adlib_poll_thread()
 
     // PRIO_DEFAULT is 10; lower is higher priority.
     // Give audio a small boost so heavy rendering doesn't starve polling.
-    thd_set_prio(g_adlibPollThread, 5);
+    thd_set_prio(g_adlibPollThread, 3);
 }
 
 static void* dc_adlib_synth_thread(void* /*param*/)
@@ -168,67 +168,82 @@ static void* dc_adlib_synth_thread(void* /*param*/)
 
     // Generate audio in small chunks so we can interleave with the rest of the
     // system without long stalls.
-    static constexpr int kChunkSamples = 512;
+    static constexpr int kChunkSamples = 1024;
     static constexpr int kChunkBytes = kChunkSamples * 2;
     static uint8_t s_chunkBuf[kChunkBytes] __attribute__((aligned(32)));
 
     while (g_adlibSynthThreadRun)
     {
-        // If stream isn't running yet, idle.
-        if (!g_adlibStreamStarted)
+        // Wait until the stream is allocated so we know someone wants audio.
+        if (g_adlibStream == SND_STREAM_INVALID)
         {
             thd_sleep(10);
             continue;
         }
 
+        // Keep the ring buffer mostly full so brief stalls don't underrun.
+        const uint32_t targetAvail = (kAdlibRingSamples * 3) / 4;
+
         uint32_t rd = g_adlibRingRead;
         uint32_t wr = g_adlibRingWrite;
-        const uint32_t space = dc_ring_space(rd, wr);
+        uint32_t avail = dc_ring_avail(rd, wr);
 
-        // If we have plenty of buffered audio, back off.
-        if (space < (uint32_t)kChunkSamples)
+        if (avail >= targetAvail)
         {
             thd_sleep(2);
             continue;
         }
 
-        // Produce kChunkSamples into a temporary buffer.
-        std::memset(s_chunkBuf, 0, (size_t)kChunkBytes);
-        musicUpdate(nullptr, s_chunkBuf, kChunkBytes);
-
-        // Copy into ring (handle wrap).
-        const int16_t* src = (const int16_t*)s_chunkBuf;
-        uint32_t remaining = (uint32_t)kChunkSamples;
-        while (remaining > 0)
+        // Fill loop: generate and push chunks until we hit target fill.
+        while (g_adlibSynthThreadRun)
         {
             rd = g_adlibRingRead;
             wr = g_adlibRingWrite;
-            const uint32_t space2 = dc_ring_space(rd, wr);
-            if (space2 == 0)
+            const uint32_t space = dc_ring_space(rd, wr);
+            avail = dc_ring_avail(rd, wr);
+
+            if (avail >= targetAvail)
+                break;
+            if (space < (uint32_t)kChunkSamples)
                 break;
 
-            uint32_t toWrite = remaining;
-            if (toWrite > space2)
-                toWrite = space2;
+            fitd_memset(s_chunkBuf, 0, (size_t)kChunkBytes);
+            musicUpdate(nullptr, s_chunkBuf, kChunkBytes);
 
-            uint32_t chunk = toWrite;
-            const uint32_t tillWrap = kAdlibRingSamples - wr;
-            if (chunk > tillWrap)
-                chunk = tillWrap;
+            const int16_t* src = (const int16_t*)s_chunkBuf;
+            uint32_t remaining = (uint32_t)kChunkSamples;
 
-            std::memcpy(&g_adlibRing[wr], src, (size_t)chunk * 2);
+            while (remaining > 0)
+            {
+                rd = g_adlibRingRead;
+                wr = g_adlibRingWrite;
+                const uint32_t space2 = dc_ring_space(rd, wr);
+                if (space2 == 0)
+                    break;
 
-            wr += chunk;
-            if (wr >= kAdlibRingSamples)
-                wr = 0;
+                uint32_t toWrite = remaining;
+                if (toWrite > space2)
+                    toWrite = space2;
 
-            g_adlibRingWrite = wr;
-            src += chunk;
-            remaining -= chunk;
+                uint32_t chunk = toWrite;
+                const uint32_t tillWrap = kAdlibRingSamples - wr;
+                if (chunk > tillWrap)
+                    chunk = tillWrap;
+
+                fitd_memcpy(&g_adlibRing[wr], src, (size_t)chunk * 2);
+
+                wr += chunk;
+                if (wr >= kAdlibRingSamples)
+                    wr = 0;
+
+                g_adlibRingWrite = wr;
+                src += chunk;
+                remaining -= chunk;
+            }
+
+            // Let other threads run between chunks.
+            thd_sleep(0);
         }
-
-        // Yield a bit; this thread is intentionally cooperative.
-        thd_sleep(1);
     }
 
     return nullptr;
@@ -247,8 +262,8 @@ static void ensure_adlib_synth_thread()
         return;
     }
 
-    // Slightly lower priority than poll thread, still above default.
-    thd_set_prio(g_adlibSynthThread, 6);
+    // Higher priority than most game work; synth must keep up.
+    thd_set_prio(g_adlibSynthThread, 4);
 }
 
 static void* dc_adlib_stream_cb(snd_stream_hnd_t /*hnd*/, int smp_req, int* smp_recv)
@@ -281,7 +296,7 @@ static void* dc_adlib_stream_cb(snd_stream_hnd_t /*hnd*/, int smp_req, int* smp_
         const uint32_t avail = dc_ring_avail(rd0, wr0);
         if (avail == 0)
         {
-            std::memset(out, 0, (size_t)need * 2);
+            fitd_memset(out, 0, (size_t)need * 2);
             underrun += need;
             break;
         }
@@ -295,7 +310,7 @@ static void* dc_adlib_stream_cb(snd_stream_hnd_t /*hnd*/, int smp_req, int* smp_
         if (chunk > tillWrap)
             chunk = tillWrap;
 
-        std::memcpy(out, &g_adlibRing[rd0], (size_t)chunk * 2);
+        fitd_memcpy(out, &g_adlibRing[rd0], (size_t)chunk * 2);
 
         uint32_t rd1 = rd0 + chunk;
         if (rd1 >= kAdlibRingSamples)
@@ -847,7 +862,7 @@ void osystem_endOfFrame()
         for (int y = y0; y < 200; ++y)
         {
             unsigned char* row = uiLayer.data() + y * 320;
-            std::memset(row, 0, 320);
+            fitd_memset(row, 0, 320);
         }
 
         const int x = 2;
@@ -1368,6 +1383,20 @@ void osystem_playAdlib()
             return;
     }
 
+    // Ensure the synth thread is running and pre-buffer some audio before the
+    // stream starts pulling, to avoid startup underruns.
+    ensure_adlib_synth_thread();
+    {
+        const uint64_t t0 = timer_ms_gettime64();
+        const uint32_t primeSamples = 4096;
+        while (dc_ring_avail(g_adlibRingRead, g_adlibRingWrite) < primeSamples)
+        {
+            if (timer_ms_gettime64() - t0 > 250)
+                break;
+            thd_sleep(1);
+        }
+    }
+
     // Start streaming the OPL synth output.
     if (!g_adlibStreamStarted)
     {
@@ -1376,7 +1405,6 @@ void osystem_playAdlib()
 
         // Keep the stream fed even if the main thread stalls.
         ensure_adlib_poll_thread();
-        ensure_adlib_synth_thread();
         // Prime immediately.
         snd_stream_poll(g_adlibStream);
     }
