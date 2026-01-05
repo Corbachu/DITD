@@ -30,6 +30,13 @@ void dc_video_gl_init();
 void dc_video_gl_upload_composited();
 void dc_video_gl_present();
 
+// Dreamcast GLdc: background mask overlays (used for actor occlusion).
+void dc_video_gl_create_mask(const u8* mask320x200, int roomId, int maskId,
+							 int maskX1, int maskY1, int maskX2, int maskY2);
+void dc_video_gl_queue_mask_draw(int roomId, int maskId,
+								 bool hasClip, int clipX1, int clipY1, int clipX2, int clipY2);
+void dc_video_gl_clear_mask_queue();
+
 #endif // !USE_PVR_PAL8
 
 #endif // DREAMCAST

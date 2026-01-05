@@ -28,6 +28,18 @@
 extern "C" {
 #include <dc/fmath.h>
 }
+
+// fsrra: SH-4 instruction for approximate 1/sqrt(x).
+// KOS provides many fmath intrinsics, but does not expose fsrra as a C symbol.
+static inline float fitd_fsrra(float x) {
+    asm volatile (
+        "fsrra %0\n"
+        : "+f"(x)
+        :
+        :
+    );
+    return x;
+}
 #endif
 
 #include <cstdint>
@@ -89,6 +101,25 @@ static inline float fitd_sqrtf(float v) {
     return out;
 #else
     return std::sqrtf(v);
+#endif
+}
+
+// Fast reciprocal for hot loops.
+// - DREAMCAST: uses fsrra(x) (approx 1/sqrt(x)) then squares + one Newton step.
+// - Non-DC: falls back to 1/x.
+// Notes:
+// - Expects x > 0 for best results.
+// - Does NOT touch FPSCR; callers that need single-precision should set it once
+//   around their hot loop using fitd_fpscr_force_single()/restore().
+static inline float fitd_rcpf_fast(float x) {
+#ifdef DREAMCAST
+    float r = fitd_fsrra(x);  // approx 1/sqrt(x)
+    float inv = r * r;        // approx 1/x
+    // Newton-Raphson refine: inv *= (2 - x*inv)
+    inv = inv * (2.0f - x * inv);
+    return inv;
+#else
+    return 1.0f / x;
 #endif
 }
 

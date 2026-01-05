@@ -181,6 +181,13 @@ void osystem_delay(int /*time*/)
     // noop on Dreamcast
 }
 
+#ifndef USE_PVR_PAL8
+// Uploading the 320x200 composited texture every present is expensive on GLdc.
+// Track whether the background/palette/UI changed since last upload.
+static bool g_dcCompositedDirty = true;
+static bool g_dcUiHadNonZeroLastUpload = false;
+#endif
+
 static void uploadComposited()
 {
     // Compose UI over physicalScreen (non-zero UI pixels override)
@@ -210,9 +217,65 @@ static void uploadComposited()
     #endif
     pvr_txr_load_ex(g_pal8Buffer.data(), g_pal8Texture, TEX_W, TEX_H, txrFlags);
 #else
-    dc_video_gl_upload_composited();
+    // Texture upload is expensive on GLdc; skip when nothing changed.
+    // uiLayer is composited into the texture, so we must detect when UI pixels
+    // appear/disappear even if the background stayed the same.
+    bool uiHasNonZero = false;
+
+    if (!g_dcCompositedDirty)
+    {
+        for (const u8 px : uiLayer)
+        {
+            if (px != 0)
+            {
+                uiHasNonZero = true;
+                break;
+            }
+        }
+
+        if (uiHasNonZero != g_dcUiHadNonZeroLastUpload)
+            g_dcCompositedDirty = true;
+    }
+
+    if (g_dcCompositedDirty)
+    {
+        if (!uiHasNonZero)
+        {
+            for (const u8 px : uiLayer)
+            {
+                if (px != 0)
+                {
+                    uiHasNonZero = true;
+                    break;
+                }
+            }
+        }
+
+        dc_video_gl_upload_composited();
+        g_dcUiHadNonZeroLastUpload = uiHasNonZero;
+        g_dcCompositedDirty = false;
+    }
 #endif
 }
+
+#ifndef USE_PVR_PAL8
+// Dreamcast-specific: some loops present 2D-only screens (menus, fades) without
+// re-rendering 3D. Keep a per-present flag so we can avoid drawing stale 3D
+// geometry from a previous screen.
+// True once something has started submitting 3D overlay primitives for the
+// current present. This gates per-frame clearing of RGL batches so we don't
+// accumulate geometry across frames (OOM) and also don't wipe it in tight
+// process_events() loops.
+bool g_dcExpect3DOverlayThisFrame = false;
+
+// Track the active clip region (set by SetClip/osystem_setClip) so background
+// masks can be clipped to actor bounding boxes.
+static bool g_dcClipActive = false;
+static int g_dcClipX1 = 0;
+static int g_dcClipY1 = 0;
+static int g_dcClipX2 = 320;
+static int g_dcClipY2 = 200;
+#endif
 
 u32 osystem_startOfFrame()
 {
@@ -252,9 +315,6 @@ u32 osystem_startOfFrame()
     else
         s_nextFrameMs += kFrameMs;
 
-#ifndef USE_PVR_PAL8
-    RGL_BeginFrame();
-#endif
     return 1;
 }
 
@@ -294,13 +354,17 @@ void osystem_endOfFrame()
             }
 
             if (hasZ)
-                I_Printf("[rgl] tris:%d lines:%d z:[%.1f..%.1f] t0:%d t1:%d t2:%d t3:%d\n",
+                I_Printf("[rgl] tris:%d lines:%d z:[%.1f..%.1f] t0:%d t1:%d t2:%d t3:%d tri_vec:%p line_vec:%p\n",
                          tris, lines, zMin, zMax,
-                         g_rglPolyTypeCounts[0], g_rglPolyTypeCounts[1], g_rglPolyTypeCounts[2], g_rglPolyTypeCounts[3]);
+                         g_rglPolyTypeCounts[0], g_rglPolyTypeCounts[1], g_rglPolyTypeCounts[2], g_rglPolyTypeCounts[3],
+                         (void*)&g_rglTriVtx,
+                         (void*)&g_rglLineVtx);
             else
-                I_Printf("[rgl] tris:%d lines:%d z:(none) t0:%d t1:%d t2:%d t3:%d\n",
+                I_Printf("[rgl] tris:%d lines:%d z:(none) t0:%d t1:%d t2:%d t3:%d tri_vec:%p line_vec:%p\n",
                          tris, lines,
-                         g_rglPolyTypeCounts[0], g_rglPolyTypeCounts[1], g_rglPolyTypeCounts[2], g_rglPolyTypeCounts[3]);
+                         g_rglPolyTypeCounts[0], g_rglPolyTypeCounts[1], g_rglPolyTypeCounts[2], g_rglPolyTypeCounts[3],
+                         (void*)&g_rglTriVtx,
+                         (void*)&g_rglLineVtx);
 #else
             I_Printf("[rgl] (pvr) tris:%d\n", (int)g_pvrTris.size());
 #endif
@@ -312,6 +376,7 @@ void osystem_endOfFrame()
     const char* sfxMsg = dc_sound_debug_msg();
     if (sfxMsg && PtrFont)
     {
+        g_dcCompositedDirty = true;
         const int bandH = std::min(200, fontHeight + 2);
         const int y0 = std::max(0, 200 - bandH);
 
@@ -329,7 +394,6 @@ void osystem_endOfFrame()
         PrintFont(x + 1, y + 1, (char*)uiLayer.data(), (u8*)sfxMsg);
         SetFont(PtrFont, 255);
         PrintFont(x, y, (char*)uiLayer.data(), (u8*)sfxMsg);
-
         dc_sound_debug_msg_tick();
     }
 
@@ -404,7 +468,16 @@ void osystem_endOfFrame()
     pvr_list_finish();
     pvr_scene_finish();
 #else
+
+    // If nothing started a 3D render pass since the last present, make sure we
+    // don't draw stale queued geometry on top of 2D-only screens.
+    if (!g_dcExpect3DOverlayThisFrame)
+        RGL_BeginFrame();
+
     dc_video_gl_present();
+
+    // Reset for the next present.
+    g_dcExpect3DOverlayThisFrame = false;
 #endif
 }
 
@@ -484,6 +557,10 @@ void osystem_setPalette(unsigned char* palette)
         pvr_set_pal_entry(i, packed);
 #endif
     }
+
+#ifndef USE_PVR_PAL8
+    g_dcCompositedDirty = true;
+#endif
 }
 
 void osystem_setPalette(palette_t* palette)
@@ -528,6 +605,10 @@ void osystem_setPalette(palette_t* palette)
         pvr_set_pal_entry(i, packed);
     #endif
     }
+
+#ifndef USE_PVR_PAL8
+    g_dcCompositedDirty = true;
+#endif
 }
 
 void osystem_CopyBlockPhys(unsigned char* videoBuffer, int left, int top, int right, int bottom)
@@ -539,6 +620,10 @@ void osystem_CopyBlockPhys(unsigned char* videoBuffer, int left, int top, int ri
         unsigned char* dst = physicalScreen + left + y * 320;
         fitd_memcpy(dst, src, (right - left));
     }
+
+#ifndef USE_PVR_PAL8
+    g_dcCompositedDirty = true;
+#endif
 }
 
 void osystem_refreshFrontTextureBuffer() {}
@@ -551,14 +636,75 @@ void osystem_setColor(unsigned char /*i*/, unsigned char /*R*/, unsigned char /*
 void osystem_setPalette320x200(unsigned char* /*palette*/) {}
 void osystem_drawLine(int, int, int, int, unsigned char, unsigned char*) {}
 
-void osystem_createMask(const std::array<u8, 320 * 200>&, int, int, int, int, int, int) {}
-void osystem_drawMask(int, int) {}
+void osystem_createMask(const std::array<u8, 320 * 200>& mask, int roomId, int maskId,
+                        int maskX1, int maskY1, int maskX2, int maskY2)
+{
+#ifndef USE_PVR_PAL8
+    dc_video_gl_create_mask(mask.data(), roomId, maskId, maskX1, maskY1, maskX2, maskY2);
+#else
+    (void)mask; (void)roomId; (void)maskId; (void)maskX1; (void)maskY1; (void)maskX2; (void)maskY2;
+#endif
+}
+
+void osystem_drawMask(int roomId, int maskId)
+{
+    if (g_gameId == TIMEGATE)
+        return;
+
+#ifndef USE_PVR_PAL8
+    dc_video_gl_queue_mask_draw(roomId, maskId,
+                                g_dcClipActive,
+                                g_dcClipX1, g_dcClipY1, g_dcClipX2, g_dcClipY2);
+#else
+    (void)roomId; (void)maskId;
+#endif
+}
 
 void osystem_startFrame() {}
 void osystem_stopFrame() { osystem_endOfFrame(); }
-void osystem_setClip(float, float, float, float) {}
-void osystem_clearClip() {}
-void osystem_cleanScreenKeepZBuffer() {}
+void osystem_setClip(float left, float top, float right, float bottom)
+{
+#ifndef USE_PVR_PAL8
+    g_dcClipActive = true;
+
+    // Engine clip is specified with inclusive right/bottom (320x200 space).
+    // For masks, we want half-open [x1,x2) and add a 1px safety border
+    // (matches the BGFX backend's scissor expansion).
+    const int lx = (int)std::lround(left);
+    const int ty = (int)std::lround(top);
+    const int rx = (int)std::lround(right);
+    const int by = (int)std::lround(bottom);
+
+    g_dcClipX1 = std::max(0, std::min(320, lx - 1));
+    g_dcClipY1 = std::max(0, std::min(200, ty - 1));
+    g_dcClipX2 = std::max(0, std::min(320, rx + 1));
+    g_dcClipY2 = std::max(0, std::min(200, by + 1));
+#else
+    (void)left; (void)top; (void)right; (void)bottom;
+#endif
+}
+
+void osystem_clearClip()
+{
+#ifndef USE_PVR_PAL8
+    g_dcClipActive = false;
+    g_dcClipX1 = 0;
+    g_dcClipY1 = 0;
+    g_dcClipX2 = 320;
+    g_dcClipY2 = 200;
+#endif
+}
+void osystem_cleanScreenKeepZBuffer()
+{
+#ifndef USE_PVR_PAL8
+    // Clear queued 3D primitives. This must NOT live in osystem_startOfFrame(),
+    // because process_events() calls startOfFrame in tight loops (fades/menus)
+    // and would wipe out geometry before it gets presented.
+    g_dcExpect3DOverlayThisFrame = true;
+    RGL_BeginFrame();
+    dc_video_gl_clear_mask_queue();
+#endif
+}
 
 static FORCEINLINE int dc_iround(float v)
 {
@@ -606,6 +752,13 @@ void osystem_fillPoly(float* buffer, int numPoint, unsigned char color, u8 polyT
     // index per-vertex (bank stays constant, shade varies 0..15).
     if (numPoint < 3)
         return;
+
+    // Start a 3D overlay pass on first submission this present.
+    // Some gameplay paths submit 3D without explicitly calling
+    // osystem_cleanScreenKeepZBuffer(); without this, batches either get wiped
+    // at endOfFrame (missing 3D) or accumulate across frames (OOM).
+    if (!g_dcExpect3DOverlayThisFrame)
+        osystem_cleanScreenKeepZBuffer();
 
     if (polyType < (u8)g_rglPolyTypeCounts.size())
         g_rglPolyTypeCounts[polyType]++;

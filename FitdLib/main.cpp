@@ -39,6 +39,7 @@ extern "C" {
 #include "fitd_endian_read.h"
 #include "hybrid.h"
 #include "anim2d.h"
+#include "r_occlude.h"
 
 #include <time.h>
 

@@ -32,6 +32,9 @@ extern int numOfPoints;
 
 void transformPoint(float* ax, float* bx, float* cx);
 
+int DisplayObject(int x, int y, int z, int alpha, int beta, int gamma, sBody* pBody);
+
+// Compatibility wrapper (old French name).
 int AffObjet(int x, int y, int z, int alpha, int beta, int gamma, sBody* pBody);
 
 void computeScreenBox(int x, int y, int z, int alpha, int beta, int gamma, sBody* bodyPtr);

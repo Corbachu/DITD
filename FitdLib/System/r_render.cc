@@ -24,42 +24,15 @@
 #include "System/r_render.h"
 
 #include "System/dc_palette.h"
+#include "System/r_clipping.h"
 #include "System/r_units.h"
 
 // GLdc
 #include <GL/gl.h>
 #include <GL/glkos.h>
 
-#include <dc/video.h>
+#include <vector>
 
-static void ensure_fullscreen_viewport()
-{
-    // GLdc's glViewport math depends on GetVideoMode()->height (backed by KOS
-    // vid_mode->height). Always match the current KOS video mode to avoid
-    // incorrect scaling/offset.
-    if (vid_mode)
-        glViewport(0, 0, vid_mode->width, vid_mode->height);
-    else
-        glViewport(0, 0, 640, 480);
-}
-
-static void dc_force_fullscreen_scissor()
-{
-    // GLdc's scissor implementation emits a PVR tile-clip command only when
-    // GL_SCISSOR_TEST is enabled. If any earlier code enabled scissor and set
-    // a small clip, then later disabled scissor, the last tile-clip can
-    // effectively "stick" on hardware/emulators. Force a full-screen clip.
-    int vw = 640;
-    int vh = 480;
-    if (vid_mode)
-    {
-        vw = vid_mode->width;
-        vh = vid_mode->height;
-    }
-
-    glEnable(GL_SCISSOR_TEST);
-    glScissor(0, 0, vw, vh);
-}
 
 void RGL_RenderPolys()
 {
@@ -67,7 +40,7 @@ void RGL_RenderPolys()
         return;
 
     // Use the engine's projected X/Y (320x200 game-space) and preserve Z for ordering.
-    ensure_fullscreen_viewport();
+    dc_gl_ensure_fullscreen_viewport();
 
     glMatrixMode(GL_PROJECTION);
     glLoadIdentity();
@@ -80,7 +53,7 @@ void RGL_RenderPolys()
     glMatrixMode(GL_MODELVIEW);
     glLoadIdentity();
 
-    dc_force_fullscreen_scissor();
+    dc_gl_force_fullscreen_scissor();
 
     glDisable(GL_TEXTURE_2D);
     glDisable(GL_CULL_FACE);
@@ -121,30 +94,60 @@ void RGL_RenderPolys()
 
     if (!g_rglTriVtx.empty())
     {
-        glBegin(GL_TRIANGLES);
-        for (const auto& v : g_rglTriVtx)
+        struct RGL_GLVertex
         {
+            float x, y, z;
+            u8 r, g, b, a;
+        };
+
+        static std::vector<RGL_GLVertex> s_triVerts;
+        s_triVerts.resize(g_rglTriVtx.size());
+
+        for (size_t i = 0; i < g_rglTriVtx.size(); ++i)
+        {
+            const auto& v = g_rglTriVtx[i];
             const u8 r = g_palette[v.colorIdx * 3 + 0];
             const u8 g = g_palette[v.colorIdx * 3 + 1];
             const u8 b = g_palette[v.colorIdx * 3 + 2];
-            glColor4ub(r, g, b, v.alpha);
-            glVertex3f(v.x, v.y, v.z);
+            s_triVerts[i] = { v.x, v.y, v.z, r, g, b, v.alpha };
         }
-        glEnd();
+
+        glEnableClientState(GL_VERTEX_ARRAY);
+        glEnableClientState(GL_COLOR_ARRAY);
+        glVertexPointer(3, GL_FLOAT, sizeof(RGL_GLVertex), &s_triVerts[0].x);
+        glColorPointer(4, GL_UNSIGNED_BYTE, sizeof(RGL_GLVertex), &s_triVerts[0].r);
+        glDrawArrays(GL_TRIANGLES, 0, (GLsizei)s_triVerts.size());
+        glDisableClientState(GL_COLOR_ARRAY);
+        glDisableClientState(GL_VERTEX_ARRAY);
     }
 
     if (!g_rglLineVtx.empty())
     {
-        glBegin(GL_LINES);
-        for (const auto& v : g_rglLineVtx)
+        struct RGL_GLVertex
         {
+            float x, y, z;
+            u8 r, g, b, a;
+        };
+
+        static std::vector<RGL_GLVertex> s_lineVerts;
+        s_lineVerts.resize(g_rglLineVtx.size());
+
+        for (size_t i = 0; i < g_rglLineVtx.size(); ++i)
+        {
+            const auto& v = g_rglLineVtx[i];
             const u8 r = g_palette[v.colorIdx * 3 + 0];
             const u8 g = g_palette[v.colorIdx * 3 + 1];
             const u8 b = g_palette[v.colorIdx * 3 + 2];
-            glColor4ub(r, g, b, v.alpha);
-            glVertex3f(v.x, v.y, v.z);
+            s_lineVerts[i] = { v.x, v.y, v.z, r, g, b, v.alpha };
         }
-        glEnd();
+
+        glEnableClientState(GL_VERTEX_ARRAY);
+        glEnableClientState(GL_COLOR_ARRAY);
+        glVertexPointer(3, GL_FLOAT, sizeof(RGL_GLVertex), &s_lineVerts[0].x);
+        glColorPointer(4, GL_UNSIGNED_BYTE, sizeof(RGL_GLVertex), &s_lineVerts[0].r);
+        glDrawArrays(GL_LINES, 0, (GLsizei)s_lineVerts.size());
+        glDisableClientState(GL_COLOR_ARRAY);
+        glDisableClientState(GL_VERTEX_ARRAY);
     }
 
     glEnable(GL_TEXTURE_2D);

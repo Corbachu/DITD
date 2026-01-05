@@ -18,28 +18,21 @@
 //----------------------------------------------------------------------------
 #include "common.h"
 
+#include <algorithm>
+
+#include "dc_fastmath.h"
+
+#ifdef DREAMCAST
+#include "System/r_units.h"
+#endif
+
+#if defined(DREAMCAST)
+// GCC vector extension: 2-wide float SIMD (8 bytes). Used for hot vertex rotation loops.
+typedef float fitd_vec2f __attribute__((vector_size(8), may_alias));
+#endif
+
 #include "fitd_endian_read.h"
 
-/* Projection:
- 
- Z += cameraPerspective;
- float transformedX = ((X * cameraFovX) / Z) + cameraCenterX;
- float transformedY = ((Y * cameraFovY) / Z) + cameraCenterY;
- 
- {X, Y, Z, 1}
- 
- {
-    ((X * cameraFovX) / Z) + cameraCenterX
-    ((Y * cameraFovY) / Z) + cameraCenterY
-    Z + cameraPerspective
-    ?
- }
- 
- ((X * CameraFovX) + (Z+CameraPersp) * cameraCenterX) / (Z+cameraPersp)
- 
- 
- 
- */
 
 struct rendererPointStruct
 {
@@ -57,6 +50,7 @@ struct primEntryStruct
 	u16 size;
 	u16 numOfVertices;
 	primTypeEnum type;
+    float sortDepth;
 	rendererPointStruct vertices[NUM_MAX_VERTEX_IN_PRIM];
 };
 
@@ -74,6 +68,14 @@ int BBox3D4=0;
 int renderVar1=0;
 
 int numOfPrimitiveToRender=0;
+
+#ifdef DREAMCAST
+static uint64_t s_dc_rdbg_next_ms = 0;
+static int s_dc_rdbg_aff_calls = 0;
+static int s_dc_rdbg_prims_total = 0;
+static int s_dc_rdbg_prims_kept = 0;
+static int s_dc_rdbg_prims_culled_depth = 0;
+#endif
 
 char renderBuffer[3261];
 
@@ -128,65 +130,66 @@ void fillpoly(s16 * datas, int n, char c);
 
 void transformPoint(float* ax, float* bx, float* cx)
 {
+    // Match C/C++ signed division semantics (truncate toward zero),
+    // while still using a shift-based implementation.
+    auto q16_trunc = [](int64_t v) -> int {
+        if (v >= 0)
+            return (int)(v >> 16);
+
+        // Safe abs for INT64_MIN (avoid UB from -v).
+        const uint64_t mag = (uint64_t)(-(v + 1)) + 1ULL;
+        return -(int)(mag >> 16);
+    };
+
     int X = (int)*ax;
     int Y = (int)*bx;
     int Z = (int)*cx;
+
+    int x;
+    int y;
+    int z;
+
+    if (transformUseY)
     {
-        int* ax = &X;
-        int* bx = &Y;
-        int* cx = &Z;
-
-        {
-            int x;
-            int y;
-            int z;
-
-            if(transformUseY)
-            {
-                x = (((((*ax) * transformYSin) - ((*cx) * transformYCos))) / 0x10000)<<1;
-                z = (((((*ax) * transformYCos) + ((*cx) * transformYSin))) / 0x10000)<<1;
-            }
-            else
-            {
-                x = (*ax);
-                z = (*cx);
-            }
-
-            //si = x
-            //ax = z
-
-            if(transformUseX)
-            {
-                int tempY = (*bx);
-                int tempZ = z;
-                y = ((((tempY * transformXSin ) - (tempZ * transformXCos))) / 0x10000)<<1;
-                z = ((((tempY * transformXCos ) + (tempZ * transformXSin))) / 0x10000)<<1;
-            }
-            else
-            {
-                y = (*bx);
-            }
-
-            // cx = y
-            // bx = z
-
-            if(transformUseZ)
-            {
-                int tempX = x;
-                int tempY = y;
-                x = ((((tempX * transformZSin) - ( tempY * transformZCos))) / 0x10000)<<1;
-                y = ((((tempX * transformZCos) + ( tempY * transformZSin))) / 0x10000)<<1;
-            }
-
-            *ax = x;
-            *bx = y;
-            *cx = z;
-        }
+        // cosTable is 16.16-ish fixed.
+        const int64_t vx = (int64_t)X * (int64_t)transformYSin - (int64_t)Z * (int64_t)transformYCos;
+        const int64_t vz = (int64_t)X * (int64_t)transformYCos + (int64_t)Z * (int64_t)transformYSin;
+        x = q16_trunc(vx) << 1;
+        z = q16_trunc(vz) << 1;
+    }
+    else
+    {
+        x = X;
+        z = Z;
     }
 
-    *ax = (float)X;
-    *bx = (float)Y;
-    *cx = (float)Z;
+    if (transformUseX)
+    {
+        const int tempY = Y;
+        const int tempZ = z;
+        const int64_t vy = (int64_t)tempY * (int64_t)transformXSin - (int64_t)tempZ * (int64_t)transformXCos;
+        const int64_t vz = (int64_t)tempY * (int64_t)transformXCos + (int64_t)tempZ * (int64_t)transformXSin;
+        y = q16_trunc(vy) << 1;
+        z = q16_trunc(vz) << 1;
+    }
+    else
+    {
+        y = Y;
+    }
+
+    if (transformUseZ)
+    {
+        const int tempX = x;
+        const int tempY = y;
+        const int64_t vx = (int64_t)tempX * (int64_t)transformZSin - (int64_t)tempY * (int64_t)transformZCos;
+        const int64_t vy = (int64_t)tempX * (int64_t)transformZCos + (int64_t)tempY * (int64_t)transformZSin;
+        x = q16_trunc(vx) << 1;
+        y = q16_trunc(vy) << 1;
+    }
+
+    *ax = (float)x;
+    *bx = (float)y;
+    *cx = (float)z;
 }
 
 void InitGroupeRot(int transX,int transY,int transZ)
@@ -324,7 +327,7 @@ void ZoomGroupe(int zoomX, int zoomY, int zoomZ, sGroup* ptr)
     }
 }
 
-int AnimNuage(int x,int y,int z,int alpha,int beta,int gamma, sBody* pBody)
+static int AnimateCloud(int x,int y,int z,int alpha,int beta,int gamma, sBody* pBody)
 {
     renderX = x - translateX;
     renderY = y;
@@ -470,6 +473,11 @@ int AnimNuage(int x,int y,int z,int alpha,int beta,int gamma, sBody* pBody)
         s16* ptr = cameraSpaceBuffer;
         float* outPtr2 = renderPointList;
 
+    #ifdef DREAMCAST
+        // Make sure SH-4 fmath ops stay in single precision for consistency/speed.
+        uint32_t old_fpscr = fitd_fpscr_force_single();
+    #endif
+
         int k = numOfPoints;
         do
         {
@@ -497,7 +505,7 @@ int AnimNuage(int x,int y,int z,int alpha,int beta,int gamma, sBody* pBody)
             }
             else
             {
-                const float invZ = 1.0f / Z;
+                const float invZ = fitd_rcpf_fast(Z);
                 float transformedX = (X * cameraFovX * invZ) + cameraCenterX;
                 float transformedY;
 
@@ -526,13 +534,26 @@ int AnimNuage(int x,int y,int z,int alpha,int beta,int gamma, sBody* pBody)
             k--;
             if(k==0)
             {
+#ifdef DREAMCAST
+                fitd_fpscr_restore(old_fpscr);
+#endif
                 return(1);
             }
 
         }while(renderVar1 == 0);
+
+    #ifdef DREAMCAST
+        fitd_fpscr_restore(old_fpscr);
+    #endif
     }
 
     return(0);
+}
+
+// Compatibility wrapper (old French name).
+int AnimNuage(int x,int y,int z,int alpha,int beta,int gamma, sBody* pBody)
+{
+    return AnimateCloud(x,y,z,alpha,beta,gamma, pBody);
 }
 
 /*
@@ -542,9 +563,13 @@ z - cameraZ
  
 */
 
-int RotateNuage(int x,int y,int z,int alpha,int beta,int gamma, sBody* pBody)
+static int RotateAndProjectBody(int x,int y,int z,int alpha,int beta,int gamma, sBody* pBody)
 {
     float* outPtr;
+
+#if !defined(AITD_UE4) && defined(DREAMCAST)
+    uint32_t old_fpscr = fitd_fpscr_force_single();
+#endif
 
     renderX = x - translateX;
     renderY = y;
@@ -570,42 +595,33 @@ int RotateNuage(int x,int y,int z,int alpha,int beta,int gamma, sBody* pBody)
 
     outPtr = renderPointList;
 
-    for(int i=0; i<pBody->m_vertices.size(); i++)
-    {
-        float X = pBody->m_vertices[i].x;
-        float Y = pBody->m_vertices[i].y;
-        float Z = pBody->m_vertices[i].z;
+    // Cache frequently-used globals into locals for the hot loop.
+    const float fovX = cameraFovX;
+    const float fovY = cameraFovY;
+    const float ctrX = cameraCenterX;
+    const float ctrY = cameraCenterY;
+    const float camPersp = cameraPerspective;
 
-        if(!noModelRotation)
-        {
-			// Y rotation
-            {
-                float tempX = X;
-                float tempZ = Z;
-                const float k = 1.0f/32768.0f; // 2/65536
-                X = (((modelSinBeta * tempX) - (modelCosBeta * tempZ)) * k);
-                Z = (((modelCosBeta * tempX) + (modelSinBeta * tempZ)) * k);
-            }
+#if !defined(AITD_UE4)
+    const bool camUseX = transformUseX;
+    const bool camUseY = transformUseY;
+    const bool camUseZ = transformUseZ;
+    const int camXSin = transformXSin;
+    const int camXCos = transformXCos;
+    const int camYSin = transformYSin;
+    const int camYCos = transformYCos;
+    const int camZSin = transformZSin;
+    const int camZCos = transformZCos;
 
-			// Z rotation
-            {
-                float tempX = X;
-                float tempY = Y;
-                const float k = 1.0f/32768.0f; // 2/65536
-                X = (((modelSinGamma * tempX) - (modelCosGamma * tempY)) * k);
-                Y = (((modelCosGamma * tempX) + (modelSinGamma * tempY)) * k);
-            }
+    auto q16_trunc = [](int64_t v) -> int {
+        if (v >= 0)
+            return (int)(v >> 16);
+        const uint64_t mag = (uint64_t)(-(v + 1)) + 1ULL;
+        return -(int)(mag >> 16);
+    };
+#endif
 
-			// X rotation
-            {
-                float tempY = Y;
-                float tempZ = Z;
-                const float k = 1.0f/32768.0f; // 2/65536
-                Y = (((modelSinAlpha * tempY) - (modelCosAlpha * tempZ)) * k);
-                Z = (((modelCosAlpha * tempY) + (modelSinAlpha * tempZ)) * k);
-            }
-        }
-
+    auto emitProjectedVertex = [&](float X, float Y, float Z) {
         X += renderX;
         Y += renderY;
         Z += renderZ;
@@ -615,7 +631,7 @@ int RotateNuage(int x,int y,int z,int alpha,int beta,int gamma, sBody* pBody)
         *(outPtr++) = Y;
         *(outPtr++) = Z;
 #else
-        if(Y>10000) // height clamp
+        if (Y > 10000) // height clamp
         {
             *(outPtr++) = -10000;
             *(outPtr++) = -10000;
@@ -628,43 +644,199 @@ int RotateNuage(int x,int y,int z,int alpha,int beta,int gamma, sBody* pBody)
 
             Y -= translateY;
 
-            transformPoint(&X,&Y,&Z);
-
-            Z += cameraPerspective;
-
+            // Inline transformPoint() for performance (same math/rounding).
             {
-                const float invZ = 1.0f / Z;
-                transformedX = (X * cameraFovX * invZ) + cameraCenterX;
+                int Xi = (int)X;
+                int Yi = (int)Y;
+                int Zi = (int)Z;
+
+                int x;
+                int y;
+                int z;
+
+                if (camUseY)
+                {
+                    const int64_t vx = (int64_t)Xi * (int64_t)camYSin - (int64_t)Zi * (int64_t)camYCos;
+                    const int64_t vz = (int64_t)Xi * (int64_t)camYCos + (int64_t)Zi * (int64_t)camYSin;
+                    x = q16_trunc(vx) << 1;
+                    z = q16_trunc(vz) << 1;
+                }
+                else
+                {
+                    x = Xi;
+                    z = Zi;
+                }
+
+                if (camUseX)
+                {
+                    const int tempY = Yi;
+                    const int tempZ = z;
+                    const int64_t vy = (int64_t)tempY * (int64_t)camXSin - (int64_t)tempZ * (int64_t)camXCos;
+                    const int64_t vz = (int64_t)tempY * (int64_t)camXCos + (int64_t)tempZ * (int64_t)camXSin;
+                    y = q16_trunc(vy) << 1;
+                    z = q16_trunc(vz) << 1;
+                }
+                else
+                {
+                    y = Yi;
+                }
+
+                if (camUseZ)
+                {
+                    const int tempX = x;
+                    const int tempY = y;
+                    const int64_t vx = (int64_t)tempX * (int64_t)camZSin - (int64_t)tempY * (int64_t)camZCos;
+                    const int64_t vy = (int64_t)tempX * (int64_t)camZCos + (int64_t)tempY * (int64_t)camZSin;
+                    x = q16_trunc(vx) << 1;
+                    y = q16_trunc(vy) << 1;
+                }
+
+                X = (float)x;
+                Y = (float)y;
+                Z = (float)z;
             }
+
+            Z += camPersp;
+
+            const float invZ = fitd_rcpf_fast(Z);
+            transformedX = (X * fovX * invZ) + ctrX;
 
             *(outPtr++) = transformedX;
 
-            if(transformedX < BBox3D1)
+            if (transformedX < BBox3D1)
                 BBox3D1 = (int)transformedX;
 
-            if(transformedX > BBox3D3)
+            if (transformedX > BBox3D3)
                 BBox3D3 = (int)transformedX;
 
-            transformedY = (Y * cameraFovY * (1.0f / Z)) + cameraCenterY;
+            transformedY = (Y * fovY * invZ) + ctrY;
 
             *(outPtr++) = transformedY;
 
-            if(transformedY < BBox3D2)
+            if (transformedY < BBox3D2)
                 BBox3D2 = (int)transformedY;
 
-            if(transformedY > BBox3D4)
+            if (transformedY > BBox3D4)
                 BBox3D4 = (int)transformedY;
 
-            *(outPtr++) = Z; 
-
-            /*  *(outPtr++) = X;
-            *(outPtr++) = Y;
-            *(outPtr++) = Z; */
-
+            *(outPtr++) = Z;
         }
 #endif
+    };
+
+#if defined(DREAMCAST) && !defined(AITD_UE4)
+    if (!noModelRotation)
+    {
+        using vec2 = fitd_vec2f;
+
+        // Pre-scale once: int cosTable values are fixed-ish; original code used k=2/65536.
+        const float k = 1.0f / 32768.0f;
+        const float sB0 = (float)modelSinBeta  * k;
+        const float cB0 = (float)modelCosBeta  * k;
+        const float sG0 = (float)modelSinGamma * k;
+        const float cG0 = (float)modelCosGamma * k;
+        const float sA0 = (float)modelSinAlpha * k;
+        const float cA0 = (float)modelCosAlpha * k;
+
+        const vec2 sB = { sB0, sB0 };
+        const vec2 cB = { cB0, cB0 };
+        const vec2 sG = { sG0, sG0 };
+        const vec2 cG = { cG0, cG0 };
+        const vec2 sA = { sA0, sA0 };
+        const vec2 cA = { cA0, cA0 };
+
+        const int n = (int)pBody->m_vertices.size();
+        int i = 0;
+        for (; i + 1 < n; i += 2)
+        {
+            vec2 X = { (float)pBody->m_vertices[i + 0].x, (float)pBody->m_vertices[i + 1].x };
+            vec2 Y = { (float)pBody->m_vertices[i + 0].y, (float)pBody->m_vertices[i + 1].y };
+            vec2 Z = { (float)pBody->m_vertices[i + 0].z, (float)pBody->m_vertices[i + 1].z };
+
+            // Y rotation
+            {
+                const vec2 tempX = X;
+                const vec2 tempZ = Z;
+                X = (tempX * sB) - (tempZ * cB);
+                Z = (tempX * cB) + (tempZ * sB);
+            }
+
+            // Z rotation
+            {
+                const vec2 tempX = X;
+                const vec2 tempY = Y;
+                X = (tempX * sG) - (tempY * cG);
+                Y = (tempX * cG) + (tempY * sG);
+            }
+
+            // X rotation
+            {
+                const vec2 tempY = Y;
+                const vec2 tempZ = Z;
+                Y = (tempY * sA) - (tempZ * cA);
+                Z = (tempY * cA) + (tempZ * sA);
+            }
+
+            const float* x = (const float*)&X;
+            const float* y = (const float*)&Y;
+            const float* z = (const float*)&Z;
+
+            emitProjectedVertex(x[0], y[0], z[0]);
+            emitProjectedVertex(x[1], y[1], z[1]);
+        }
+
+        // Tail
+        for (; i < n; i++)
+        {
+            float X = pBody->m_vertices[i].x;
+            float Y = pBody->m_vertices[i].y;
+            float Z = pBody->m_vertices[i].z;
+
+            // Scalar fallback for last vertex
+            {
+                float tempX = X;
+                float tempZ = Z;
+                X = (((modelSinBeta * tempX) - (modelCosBeta * tempZ)) * k);
+                Z = (((modelCosBeta * tempX) + (modelSinBeta * tempZ)) * k);
+            }
+            {
+                float tempX = X;
+                float tempY = Y;
+                X = (((modelSinGamma * tempX) - (modelCosGamma * tempY)) * k);
+                Y = (((modelCosGamma * tempX) + (modelSinGamma * tempY)) * k);
+            }
+            {
+                float tempY = Y;
+                float tempZ = Z;
+                Y = (((modelSinAlpha * tempY) - (modelCosAlpha * tempZ)) * k);
+                Z = (((modelCosAlpha * tempY) + (modelSinAlpha * tempZ)) * k);
+            }
+
+            emitProjectedVertex(X, Y, Z);
+        }
     }
+    else
+#endif
+    {
+        for(int i=0; i<pBody->m_vertices.size(); i++)
+        {
+            float X = pBody->m_vertices[i].x;
+            float Y = pBody->m_vertices[i].y;
+            float Z = pBody->m_vertices[i].z;
+            emitProjectedVertex(X, Y, Z);
+        }
+    }
+
+#if !defined(AITD_UE4) && defined(DREAMCAST)
+    fitd_fpscr_restore(old_fpscr);
+#endif
     return(1);
+}
+
+// Compatibility wrapper (old French name).
+int RotateNuage(int x,int y,int z,int alpha,int beta,int gamma, sBody* pBody)
+{
+    return RotateAndProjectBody(x,y,z,alpha,beta,gamma, pBody);
 }
 
 char* primVar1;
@@ -706,15 +878,31 @@ void processPrim_Line(int primType, sPrimitive* ptr, char** out)
 
     }
 
+    // For painter's algorithm: larger Z is farther away.
+    // Use min-Z as a conservative sort key.
+    pCurrentPrimEntry->sortDepth = depth;
+
 #if !defined(AITD_UE4)
+    s_dc_rdbg_prims_total++;
     if (depth > 100)
 #endif
     {
+#ifdef DREAMCAST
+        s_dc_rdbg_prims_kept++;
+#endif
         positionInPrimEntry++;
 
         numOfPrimitiveToRender++;
         ASSERT(positionInPrimEntry < NUM_MAX_PRIM_ENTRY);
     }
+#if !defined(AITD_UE4)
+    else
+    {
+#ifdef DREAMCAST
+        s_dc_rdbg_prims_culled_depth++;
+#endif
+    }
+#endif
 }
 
 void processPrim_Poly(int primType, sPrimitive* ptr, char** out)
@@ -747,15 +935,30 @@ void processPrim_Poly(int primType, sPrimitive* ptr, char** out)
 
     }
 
+    // Use min-Z as a conservative sort key.
+    pCurrentPrimEntry->sortDepth = depth;
+
 #if !defined(AITD_UE4)
+    s_dc_rdbg_prims_total++;
     if (depth > 100)
 #endif
     {
+#ifdef DREAMCAST
+        s_dc_rdbg_prims_kept++;
+#endif
         positionInPrimEntry++;
 
         numOfPrimitiveToRender++;
         ASSERT(positionInPrimEntry < NUM_MAX_PRIM_ENTRY);
     }
+#if !defined(AITD_UE4)
+    else
+    {
+#ifdef DREAMCAST
+        s_dc_rdbg_prims_culled_depth++;
+#endif
+    }
+#endif
 }
 
 void processPrim_Point(primTypeEnum primType, sPrimitive* ptr, char** out)
@@ -781,15 +984,29 @@ void processPrim_Point(primTypeEnum primType, sPrimitive* ptr, char** out)
         depth = pCurrentPrimEntry->vertices[0].Z;
     }
 
+    pCurrentPrimEntry->sortDepth = depth;
+
 #if !defined(AITD_UE4)
+    s_dc_rdbg_prims_total++;
     if (depth > 100)
 #endif
     {
+#ifdef DREAMCAST
+        s_dc_rdbg_prims_kept++;
+#endif
         positionInPrimEntry++;
 
         numOfPrimitiveToRender++;
         ASSERT(positionInPrimEntry < NUM_MAX_PRIM_ENTRY);
     }
+#if !defined(AITD_UE4)
+    else
+    {
+#ifdef DREAMCAST
+        s_dc_rdbg_prims_culled_depth++;
+#endif
+    }
+#endif
 }
 
 void processPrim_Sphere(int primType, sPrimitive* ptr, char** out)
@@ -816,64 +1033,37 @@ void processPrim_Sphere(int primType, sPrimitive* ptr, char** out)
         depth = pCurrentPrimEntry->vertices[0].Z;
     }
 
+    pCurrentPrimEntry->sortDepth = depth;
+
 #if !defined(AITD_UE4)
+    s_dc_rdbg_prims_total++;
     if (depth > 100)
 #endif
     {
+#ifdef DREAMCAST
+        s_dc_rdbg_prims_kept++;
+#endif
         positionInPrimEntry++;
 
         numOfPrimitiveToRender++;
         ASSERT(positionInPrimEntry < NUM_MAX_PRIM_ENTRY);
     }
+#if !defined(AITD_UE4)
+    else
+    {
+#ifdef DREAMCAST
+        s_dc_rdbg_prims_culled_depth++;
+#endif
+    }
+#endif
 }
 
 void primType5(int primType, char** ptr, char** out) // draw out of hardClip
 {
+	(void)primType;
+	(void)ptr;
+	(void)out;
 	printf("ignoring prim type 5\n");
-	return;
-
-    int pointNumber;
-    s16 ax2;
-
-    primVar1 = *out;
-
-    *(s16*)(*out) = *(s16*)(*ptr);
-    *out+=2;
-    *ptr+=3;
-
-    pointNumber = *(s16*)(*ptr);
-    *ptr+=2;
-
-    // here, should check for clip on X Y Z
-
-    *(float*)(*out) = renderPointList[pointNumber/2]; // X
-    *out+=sizeof(float);
-    *(float*)(*out) = renderPointList[pointNumber/2+1]; // Y
-    *out+=sizeof(float);
-    *(float*)(*out) = renderPointList[pointNumber/2+2]; // Z
-    ax2 = (s16)(*(float*)(*out));
-    *out+=sizeof(float);
-
-    primVar2 = *out;
-
-    {
-        numOfPrimitiveToRender++;
-
-        *out = renderVar2;
-
-        *(s16*)(*out) = ax2;
-        *out+=2;
-        *(s16*)(*out) = ax2;
-        *out+=2;
-        *(s16*)(*out) = primType;
-        *out+=2;
-
-        *(char**)(*out) = primVar1;
-        *out+=4;
-
-        renderVar2 = *out;
-        *out = primVar2;
-    }
 }
 
 void line(int x1, int y1, int x2, int y2, char c);
@@ -893,7 +1083,7 @@ void renderPoly(primEntryStruct* pEntry) // poly
 void renderZixel(primEntryStruct* pEntry) // point
 {
     static float pointSize = 20.f;
-    const float invZp = 1.0f / (float)(pEntry->vertices[0].Z + cameraPerspective);
+    const float invZp = fitd_rcpf_fast((float)(pEntry->vertices[0].Z + cameraPerspective));
     float transformedSize = (pointSize * (float)cameraFovX) * invZp;
 
     osystem_drawPoint(pEntry->vertices[0].X,pEntry->vertices[0].Y,pEntry->vertices[0].Z,pEntry->color,pEntry->material, transformedSize);
@@ -916,7 +1106,7 @@ void renderSphere(primEntryStruct* pEntry) // sphere
     float transformedSize;
 
     {
-        const float invZp = 1.0f / (float)(pEntry->vertices[0].Z + cameraPerspective);
+        const float invZp = fitd_rcpf_fast((float)(pEntry->vertices[0].Z + cameraPerspective));
         transformedSize = ((float)pEntry->size * (float)cameraFovX) * invZp;
     }
 
@@ -942,7 +1132,7 @@ renderFunction renderFunctions[]={
 	renderZixel,
 };
 
-int AffObjet(int x,int y,int z,int alpha,int beta,int gamma, sBody* pBody)
+int DisplayObject(int x,int y,int z,int alpha,int beta,int gamma, sBody* pBody)
 {
     int numPrim;
     int i;
@@ -951,6 +1141,10 @@ int AffObjet(int x,int y,int z,int alpha,int beta,int gamma, sBody* pBody)
     // reinit the 2 static tables
     positionInPrimEntry = 0;
     //
+
+#ifdef DREAMCAST
+    s_dc_rdbg_aff_calls++;
+#endif
 
     BBox3D1 = 0x7FFF;
     BBox3D2 = 0x7FFF;
@@ -980,7 +1174,7 @@ int AffObjet(int x,int y,int z,int alpha,int beta,int gamma, sBody* pBody)
     else
         if(!(modelFlags&INFO_TORTUE))
         {
-            if(!RotateNuage(x,y,z,alpha,beta,gamma, pBody))
+            if(!RotateAndProjectBody(x,y,z,alpha,beta,gamma, pBody))
             {
                 BBox3D3 = -32000;
                 BBox3D4 = -32000;
@@ -1046,44 +1240,16 @@ int AffObjet(int x,int y,int z,int alpha,int beta,int gamma, sBody* pBody)
 
         }
 
-#if 0
-        // TODO: poly sorting by depth
-#ifdef USE_GL2
-        source = renderBuffer;
-#else
-        inBuffer = renderBuffer;
-        outBuffer = sortedBuffer;
+        // Sort primitives by depth (painter's algorithm) to reduce poly overlap issues
+        // on renderers without a Z-buffer. Draw far -> near.
+        std::array<primEntryStruct*, NUM_MAX_PRIM_ENTRY> sorted;
+        for (i = 0; i < numOfPrimitiveToRender; i++)
+            sorted[i] = &primTable[i];
 
-        for(i=0;i<numOfPolyToRender;i++)
-        {
-            int j;
-            int bestIdx;
-            int bestDepth = -32000;
-            char* readBuffer = renderBuffer;
-
-            for(j=0;j<numOfPolyToRender;j++)
-            {
-                int depth = READ_LE_S16(readBuffer);
-
-                if(depth>bestDepth)
-                {
-                    bestIdx = j;
-                    bestDepth = depth;
-                }
-
-                readBuffer+=10;
-            }
-
-            memcpy(outBuffer,renderBuffer+10*bestIdx,10);
-            *(s16*)(renderBuffer+10*bestIdx) = -32000;
-            outBuffer+=10;
-        }
-        source = sortedBuffer;
-
-#endif
-#endif
-
-        //  
+        std::sort(sorted.begin(), sorted.begin() + numOfPrimitiveToRender,
+                  [](const primEntryStruct* a, const primEntryStruct* b) {
+                      return a->sortDepth > b->sortDepth;
+                  });
 
         if(!numOfPrimitiveToRender)
         {
@@ -1094,11 +1260,8 @@ int AffObjet(int x,int y,int z,int alpha,int beta,int gamma, sBody* pBody)
             return(1); // model ok, but out of screen
         }
 
-        //  source += 10 * 1;
         for(i=0;i<numOfPrimitiveToRender;i++)
-        {
-            renderFunctions[primTable[i].type](&primTable[i]);
-        }
+            renderFunctions[sorted[i]->type](sorted[i]);
 
         //DEBUG
         /*  for(i=0;i<numPointInPoly;i++)
@@ -1117,7 +1280,40 @@ int AffObjet(int x,int y,int z,int alpha,int beta,int gamma, sBody* pBody)
         //
 
         osystem_flushPendingPrimitives();
+
+#ifdef DREAMCAST
+        if (!DC_IsMenuActive())
+        {
+            const uint64_t now_ms = timer_ms_gettime64();
+            if (now_ms >= s_dc_rdbg_next_ms)
+            {
+                s_dc_rdbg_next_ms = now_ms + 1000;
+                const int rglTris = (int)(g_rglTriVtx.size() / 3);
+                const int rglLines = (int)(g_rglLineVtx.size() / 2);
+
+                I_Printf("[dc][render] DisplayObject:%d prims:%d kept:%d culled_depth:%d rgl_tris:%d rgl_lines:%d rgl_tri_vec:%p rgl_line_vec:%p\n",
+                         s_dc_rdbg_aff_calls,
+                         s_dc_rdbg_prims_total,
+                         s_dc_rdbg_prims_kept,
+                         s_dc_rdbg_prims_culled_depth,
+                         rglTris,
+                         rglLines,
+                         (void*)&g_rglTriVtx,
+                         (void*)&g_rglLineVtx);
+                s_dc_rdbg_aff_calls = 0;
+                s_dc_rdbg_prims_total = 0;
+                s_dc_rdbg_prims_kept = 0;
+                s_dc_rdbg_prims_culled_depth = 0;
+            }
+        }
+#endif
         return(0);
+}
+
+// Compatibility wrapper (old French name).
+int AffObjet(int x,int y,int z,int alpha,int beta,int gamma, sBody* pBody)
+{
+    return DisplayObject(x, y, z, alpha, beta, gamma, pBody);
 }
 
 void computeScreenBox(int x, int y, int z, int alpha, int beta, int gamma, sBody* bodyPtr)

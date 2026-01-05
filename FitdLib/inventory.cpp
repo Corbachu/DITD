@@ -117,10 +117,14 @@ void renderInventoryObject(int arg)
     SetClip(statusLeft,statusTop,statusRight,statusBottom);
     AffRect(statusLeft,statusTop,statusRight,statusBottom,0);
 
+#ifdef DREAMCAST
+    osystem_cleanScreenKeepZBuffer();
+#endif
+
     ShowBeta -= 8;
 
     setCameraTarget(0,0,0,60,ShowBeta,0,24000);
-    AffObjet(0,0,0,0,0,0,ShowObjet);
+    DisplayObject(0,0,0,0,0,0,ShowObjet);
 
     if(arg!=-1)
     {
@@ -486,7 +490,7 @@ void DrawFoundWindow(int menuState, int objectName, int zoomFactor)
 
     setCameraTarget(0, 0, 0, 60, ShowBeta, 0, zoomFactor);
 
-    AffObjet(0, 0, 0, 0, 0, 0, HQR_Get(HQ_Bodys, ShowBody));
+    DisplayObject(0, 0, 0, 0, 0, 0, HQR_Get(HQ_Bodys, ShowBody));
 
     SimpleMessage(160, WindowY1, 20, 1);
     SimpleMessage(160, WindowY1 + 16, objectName, 1);

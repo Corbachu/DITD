@@ -216,14 +216,14 @@ int make3dTatou(void)
             setCameraTarget(0,0,0,alpha,beta,0,zoom);
 
 #ifdef DREAMCAST
-            dc_debug_stage("tatou: AffObjet");
+            dc_debug_stage("tatou: DisplayObject");
             osystem_drawBackground();
 #endif
 
-            AffObjet(0,0,0,0,0,0,tatou3d);
+            DisplayObject(0,0,0,0,0,0,tatou3d);
 
 #ifdef DREAMCAST
-			dbgio_printf("[dc] make3dTatou: AffObjet returned\n");
+            dbgio_printf("[dc] make3dTatou: DisplayObject returned\n");
 #endif
 
 #ifdef DREAMCAST
@@ -264,7 +264,13 @@ int make3dTatou(void)
 
                 setCameraTarget(0,0,0,alpha,beta,0,zoom);
 
-                AffObjet(0,0,0,0,0,0,tatou3d);
+#ifdef DREAMCAST
+                osystem_cleanScreenKeepZBuffer();
+#endif
+#ifdef DREAMCAST
+                osystem_cleanScreenKeepZBuffer();
+#endif
+                DisplayObject(0,0,0,0,0,0,tatou3d);
 
                 //blitScreenTatou();
 
