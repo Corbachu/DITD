@@ -268,6 +268,23 @@ static void uploadComposited()
 // process_events() loops.
 bool g_dcExpect3DOverlayThisFrame = false;
 
+// Track engine "logic frames" so we can reliably begin (clear) RGL batches once
+// per tick, even if some paths render multiple times before an explicit present.
+// This prevents unbounded growth of g_rglTriVtx/g_rglLineVtx (OOM).
+static uint32_t s_dcLogicFrameId = 0;
+static uint32_t s_dcRglBegunFrameId = 0xFFFFFFFFu;
+
+// Called by the GLdc batching helpers on the first primitive submission of a
+// given logic frame.
+void dc_rgl_ensure_frame_started()
+{
+    if (s_dcRglBegunFrameId != s_dcLogicFrameId)
+    {
+        osystem_cleanScreenKeepZBuffer();
+        s_dcRglBegunFrameId = s_dcLogicFrameId;
+    }
+}
+
 // Track the active clip region (set by SetClip/osystem_setClip) so background
 // masks can be clipped to actor bounding boxes.
 static bool g_dcClipActive = false;
@@ -315,6 +332,9 @@ u32 osystem_startOfFrame()
     else
         s_nextFrameMs += kFrameMs;
 
+    // Count logic ticks. Used by dc_rgl_ensure_frame_started() to prevent
+    // unbounded RGL batch growth when multiple ticks occur without a present.
+    s_dcLogicFrameId++;
     return 1;
 }
 
@@ -469,12 +489,16 @@ void osystem_endOfFrame()
     pvr_scene_finish();
 #else
 
-    // If nothing started a 3D render pass since the last present, make sure we
-    // don't draw stale queued geometry on top of 2D-only screens.
-    if (!g_dcExpect3DOverlayThisFrame)
-        RGL_BeginFrame();
-
     dc_video_gl_present();
+
+    // Always clear after presenting. This avoids re-drawing stale geometry on
+    // subsequent 2D-only presents and keeps memory bounded.
+    RGL_BeginFrame();
+    dc_video_gl_clear_mask_queue();
+
+    // Force a re-begin if any primitives are submitted before the next
+    // osystem_startOfFrame() tick.
+    s_dcRglBegunFrameId = 0xFFFFFFFFu;
 
     // Reset for the next present.
     g_dcExpect3DOverlayThisFrame = false;

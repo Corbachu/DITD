@@ -25,9 +25,12 @@
 
 #include "osystem.h"
 
-// Defined in osystemDC.cpp (Dreamcast backend). Exposed so the unit batching
-// helpers can ensure a 3D overlay frame is started on first submission.
-extern bool g_dcExpect3DOverlayThisFrame;
+#ifndef USE_PVR_PAL8
+// Defined in osystemDC.cpp (Dreamcast backend). Ensures RGL batches are cleared
+// once per engine tick, preventing unbounded growth when multiple renders occur
+// without a present.
+extern void dc_rgl_ensure_frame_started();
+#endif
 
 #include <algorithm>
 #include <cmath>
@@ -54,8 +57,9 @@ void RGL_AddTri(float x1, float y1, float z1,
                     float x3, float y3, float z3,
                     u8 colorIdx, u8 alpha)
 {
-    if (!g_dcExpect3DOverlayThisFrame)
-        osystem_cleanScreenKeepZBuffer();
+#ifndef USE_PVR_PAL8
+    dc_rgl_ensure_frame_started();
+#endif
 
     g_rglTriVtx.push_back({x1, y1, z1, colorIdx, alpha});
     g_rglTriVtx.push_back({x2, y2, z2, colorIdx, alpha});
@@ -66,8 +70,9 @@ void RGL_AddLine(float x1, float y1, float z1,
                      float x2, float y2, float z2,
                      u8 colorIdx, u8 alpha)
 {
-    if (!g_dcExpect3DOverlayThisFrame)
-        osystem_cleanScreenKeepZBuffer();
+#ifndef USE_PVR_PAL8
+    dc_rgl_ensure_frame_started();
+#endif
 
     g_rglLineVtx.push_back({x1, y1, z1, colorIdx, alpha});
     g_rglLineVtx.push_back({x2, y2, z2, colorIdx, alpha});
