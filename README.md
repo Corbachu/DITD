@@ -1,240 +1,375 @@
-## Dream In the Dark (v3, FITD for KallistOS)
+## Dream In the Dark
 ---
 [![DITD.png](https://i.postimg.cc/gkWNhsjS/DITD.png)](https://postimg.cc/K40PSnnB)
 
-#### DITD ("Dream in the Dark") is an open source version of the engine used in the Alone in the Dark (AITD) and its sequels. 
+# Dream in the Dark — DITD
 
-### It is based off of fitd ("Free in the Dark") and uses the Enhanced DOOM Gaming Engine ("EDGE") as its backend (EITD, or ""EDGE In the Dark").
-
-
-## (C) 1999-2025 The EDGE Team & [Contributors](https://github.com/3dfxdev/hyper3DGE/blob/master/AUTHORS.md)
-## (c) FITD Authors/Team ("Free in the Dark") (this version is forked directly from FITD, see Contributors above)
-## (C) JMIMU (original basis for this port, forking some code from Jimmu's port into this one): https://github.com/jmimu/FITD
-##### Uses GPL-licensed technology from id Tech 1-4 (C) 1997-2011 id Software, LLC
-##### DOSDoom originally developed by Chi Hoang and the DOSDoom Team, (C) 1997-1999
-#### [Licensed under the GPLv2 or greater](https://github.com/Corbachu/EITD/blob/master/AUTHORS.md)
-#### [See our EDGE Wiki](http://3dfxdev.net/edgewiki/index.php/Main_Page) - TODO MAKE EITD WIKI
-
-### *special notice:
-----------------------------
-
-This is a massive hack-job/WIP until I get things more under control!
-- Ported from QMAKE to MAKE (original file fitd.pro)
-- Help Wanted for debugging, my time is VERY limited! 
-- SEE ALL NOTES BELOW
-
-## Build System for DITD
----
-To build DITD, build with "Make -f Makefile.dc" to produce the ELF binary under KOS.
-- At the command line, typing in "Make DREAMINTHEDARK" will produce a disc image and ELF that can be used for testing.
-- You still need the .PAK files from the registered version of Alone in the Dark (which you should put into /root/ALONE/data)
-#### Libraries
----
-- SDL 1 (NEED to remove this)
-- SDL1_mixer (Currently disabled, scheduled for removal)
-- Zlib
-- GLdc 
-
----
-## FAQ
-
-### What is Dream in the Dark?
-------------
-
-Years ago, this started as "Dream in the Dark" (or "DITD"), a port of fitd to SH-4/DC. This is a crummy patch up of the code that existed years ago (the YouTube video I had posted at that time), but most if not all of it was completely broken as KOS has evolved greatly since then. 
-
-EDIT: Found the original 0.1 video of Dream in the Dark (https://www.youtube.com/watch?v=sE_7FkT0aDM)
-
-
-### What Is Supported? (Notes from original fitd)
----
-- AITD1:
-    Should be completable. Saving and loading is supported,
-    but only one slot is available (the screen to select the
-    save position is not implemented). It's possible to load
-    a savegame from the original game, provided it's file is
-    named "save0.itd" (rename it if necessary). Like wise,
-    it is possible to load a FITD save in the original engine.
-    There is a big issue concerning the projectils. Basically,
-    guns, won't work, and throwing objects may produce strange
-    result. Save before throwing anything, as the object may
-    appear in a wall...
-
-- AITD2:
-      Supported but uncompletable. The introduction is buggy
-      due to a regression in the script engine. Hit 'esc' to skip
-      the intro (both parts) to bypass the bug .Save/load is
-      unsupported.
-- JACK:
-      Supported but uncompletable.
-      Save/load is unsupported.
-
-- AITD3:
-      Supported but uncompletable.
-      Save/load is unsupported.
-
-# The EDGE Team
----
-## Team and Contributors
-
-EDGE has and will continue to exist thanks to all the people who contribute:
-- Corbin "Corbachu" Annis
-	  Programmer, SH4/CC ports
-
-- hogz
-	  Maintainer of his own fork "hfitd", which I've incorporated some parts of.
-
-- somaen
-	  Initial FITD-risidualVM stuff
-
-- tigrouind
-	  AITD Room Viewer
-
-- Vincent Hamm "yaz0r" (yazoo@yaz0r.net)
-      Project leader and main programmer
-
-- Nicolas Noble "Pixel"
-      Cross platform issues. Helped understanding some
-      complex aspect of the 3d engine
-	  
-- Andrew Apted
-	  Authored EDGE, EPI, and the coding style we use here. :P
-
-
-## Special Thanks
----
-- The FITD Team for Free in the Dark.
-- The EDGE Team, and the EDGE Engine from which we use significant pieces of here.
-- The ridisualvm team for initial backends/support
-
-### Original "Greetings" portion from FITD:
-- All the Alone in the Dark 1 team:
-      Frederick Raynal
-      Yael Barroz
-      Didier Chanfray
-      Philippe Vachey
-      Franck De Girolami
-      Jean-Marc Torroella
-      Hubert Chardot
-      Franck Manzetti
-
-- Laurent Paret, you know what for ;)
-
-- Sebastien Viannay, maybe this project wouldn't
-      have existed without you...
-
-- All those I forgot....
-
-
-
-
-## Development History
----
-Read the historical timeline of EDGE at [The Doom Wiki](https://doomwiki.org/wiki/EDGE), or check out the /docs/logs/ folder.
+**(C) 2025-2026Isotope Softworks — assets inside PAK0 are (C) Isotope Softworks**  
+**(C) FITD Team
+**A modern, hardware‑accurate, and heavily extended source port of the Alone in the Dark AITD 1–3 engine — targeting the Sega Dreamcast.**
 
 ---
 
-# Support
-* Visit the [EDGE forums](http://tdgmods.net/smf) and get involved with the community and the various projects for the engine.
-* The [EDGEWiki](http://3dfxdev.net/edgewiki) is also a great resource for editing documentation and other information related to the engine.
+## Overview
 
-(C) 1999 - 2021 [Isotope SoftWorks](https://www.facebook.com/IsotopeSoftWorks/) and Contributors (The EDGE Team). All Rights Reserved.
+**Dream in the Dark (DITD)** is a reconstruction and modernization of the original **Alone in the Dark (FITD)** engine, designed to run **AITD 1–3** faithfully on **real Dreamcast hardware** and for developer/debugging on modern desktop systems.
+
+DITD is **not a standalone game**. It is a **Dreamcast‑first FITD engine rewrite**, extended far beyond the original codebase while preserving the behavior, timing, and feel of the DOS classics.
+
+### Why the name DITD and not FITD
+
+The project has undergone **extensive, non‑portable refactoring** and includes Dreamcast‑specific systems and optimizations that diverge from upstream FITD. Because the codebase is architecturally distinct and not intended for upstream portability, the project identity is **Dream in the Dark (DITD)** rather than FITD.
+
+---
+
+## Supported games
+
+DITD is designed to run:
+
+- **Alone in the Dark** (1992)  
+- **Alone in the Dark 2** (1993)  
+- **Alone in the Dark 3** (1994)  
+- **Jack in the Dark**
+
+**Users must provide their own legally obtained game data.**
+
+---
+
+## Architecture overview
+
+DITD is composed of several major layers, with **FitdLib** as the true engine.
+
+### FitdLib — the engine layer
+
+`FitdLib/` is the core of DITD and contains the extended FITD engine systems:
+
+- Actor system  
+- Script interpreter  
+- Camera logic  
+- Collision and triggers  
+- Scene graph  
+- Palette and texture handling  
+- Timing and movement rules  
+- High‑level engine logic not present in the original FITD
+
+This is the **real engine** — not the `Fitd/` directory.
+
+---
+
+### Embedded EDGE platform layer
+
+EDGE is embedded directly into FitdLib and provides:
+
+- Cross‑platform initialization  
+- Input abstraction  
+- Virtual filesystem integration  
+- Logging and debugging  
+- Memory and container utilities
+
+There is **no separate Edge directory** — the backend is embedded inside FitdLib.
+
+---
+
+### Dreamcast specific backend
+
+`FitdLib/System/` contains Dreamcast‑specific systems:
+
+- **Rewritten FITD renderer built on GLdc**  
+  - **GLdc is used as provided**; the **FITD renderer itself** was rewritten to target GLdc and the Dreamcast PVR  
+- Timing subsystem adapted to **SH‑4**  
+- Sound and speech playback  
+- Platform utilities and Dreamcast filesystem integration  
+- **SH‑4 fast‑math routines**  
+- **Custom SIMD backend (libSH4simd)** for accelerated memcpy, vector math, trigonometry, and 3D transforms
+
+This is where Dreamcast hardware is fully leveraged.
+
+---
+
+### EPI backend
+
+A Dreamcast‑specific EPI backend provides:
+
+- Filesystem abstraction (`epi::file_c`)  
+- Directory enumeration and path utilities  
+- Timing and platform utilities  
+- Fixed‑point math types
+
+EPI integrates the Dreamcast backend with the engine and the custom archive system.
+
+---
+
+### Custom archive system
+
+A custom PhysFS‑derived archive layer supports:
+
+- Quake PAK  
+- EPK/PK3 (ZIP‑based)  
+- Modding‑friendly search paths  
+- Virtual filesystem layering
+
+This enables loading original AITD data, overriding assets with mods, and packaging Dreamcast‑friendly archives.
+
+---
+
+### ADF scripting language
+
+**ADF (Alone Definition File)** focuses on audio customization:
+
+- Sound customization  
+- Music replacement  
+- Speech override/remapping  
+- User‑defined audio packs  
+- Mixing original AITD audio with custom content
+
+ADF is **not yet** a full gameplay scripting system. Future updates will expand ADF to support scene logic, actor behavior, and debugging hooks.
+
+---
+
+### COAL backend
+
+COAL from EDGE is included for future HUD/UI work and will power:
+
+- HUD elements  
+- Menus  
+- Debug overlays  
+- UI widgets
+
+COAL‑based features are planned for later milestones.
+
+---
+
+### Fitd entry point
+
+`Fitd/` contains:
+
+- Basic entry point code  
+- Startup glue  
+- Minimal bootstrap logic
+
+All real engine functionality lives in **FitdLib**.
+
+---
+
+## Additional embedded components and dependencies
+
+DITD bundles and depends on several Dreamcast‑specific or project‑specific components. These are required for Dreamcast builds and are tightly integrated.
+
+### Audio
+
+- **XingMP3 (KOS‑ports libmp3)** — required for MP3 music and SFX. Supported MP3 format: **22 kHz, 128 kbps**.
+
+### Image loading
+
+- **Custom EPI‑based stb_image** — Dreamcast‑safe texture decoding and palette extraction.
+
+### Archive / VFS
+
+- **PhysFS 1.x (custom KOSPorts by dreamEDGE)** — modified for KOS and integrated into the EPI layer to support PAK and EPK/PK3 archives.
+
+### EDGE components embedded
+
+- **m_misc** — configuration and options handling  
+- **z_zone** — memory management and pooled allocators  
+- **RGL init** — renderer bootstrap  
+- **dreamEDGE init backend** — platform setup, logging, VFS initialization, input abstraction
+
+### SIMD and math
+
+- **libSH4simd** — custom SH‑4 SIMD backend linked into EPI for accelerated memcpy, vector math, matrix transforms, trigonometry, and 3D operations. This backend is Dreamcast‑exclusive and a major reason DITD is non‑portable.
+
+---
+
+## Repository structure
+
+\`\`\`
+Fitd/               — Entry point / bootstrap only
+FitdLib/            — Actual engine: game logic, EDGE backend, Dreamcast backend
+FitdLib/System/     — DC renderer, timing, sound, speech, platform code
+EPI/                — Edge Platform Interface backend (shared + DC)
+PhysFS/             — Custom PhysFS-derived archive system (PAK, EPK/PK3)
+Scripts/            — ADF scripting language files and environment scripts
+Data/               — Engine assets, PAK0 generation, ADF content
+Tools/              — Asset pipeline and debugging utilities
+\`\`\`
+
+---
+
+## Tools and asset pipeline
+
+DITD includes a set of tools and converters used to prepare assets for the Dreamcast runtime and to support modding workflows.
+
+### Primary toolchain and utilities
+
+- `pvrtex` and custom converters — prepare textures for the Dreamcast PVR  
+- `make_disc.sh` — disc asset conversion and packaging (produces `SPLASHX.mp3`, PAK0 generation helpers)  
+- Custom Windows↔WSL helpers — environment scripts to ease cross‑platform builds and conversions
+
+### Asset editors and packagers
+
+- **SLADE3** — recommended for modern PAK/EPK/PK3 generation and editing; supports PNG import/export, VOC handling, DIR/LUMP management, and modern PAK workflows  
+- **AITD‑Tools** (tigrouind) — extraction and analysis utilities used for data validation and reverse engineering support
+
+### Pipeline notes
+
+- Textures should be converted to Dreamcast‑friendly formats and palettes using the provided converters  
+- Audio intended for Dreamcast must be encoded to MP3 at **22 kHz, 128 kbps**  
+- Use SLADE3 to manage PAK contents and to create EPK/PK3 packages for mod distribution  
+- Tools/ contains in‑house utilities for batch conversions, PAK generation, and debugging helpers
+
+---
+
+## Build instructions — Dreamcast focused
+
+DITD is **Dreamcast‑first** and requires the KallistiOS toolchain and GLdc renderer. Desktop builds are for debugging only and are not authoritative for timing or final behavior.
+
+### Required software
+
+- **Windows 11** (development host, tested on 25H2)  
+- **VSCode** (editor)  
+- **WSL2 (Debian)** (build environment)  
+- **KallistiOS 2.2.1 (stable)**  
+- **KOS‑Ports**  
+- **SH‑4 GCC toolchain** (dc‑chain GCC 15.1.0 under WSL2/Debian)  
+- **GLdc** (by Kazade)  
+- **XingMP3 (KOS‑ports libmp3)**  
+- **Custom PhysFS 1.x (dreamEDGE KOSPorts)**  
+- **Custom EPI‑stb_image**  
+- **libSH4simd**
+
+### Recommended host layout
 
 
+/opt/toolchains/dc/    # KOS, toolchain, and ports /home//DITD       # repository
 
 
-Original Readme from yaz0r
-==========================
+### Clone the repository
 
-What is FITD
-------------
-
-FITD ("Free in the Dark") is an open source vesion of the
-engine used in the Alone in the Dark (AITD) and sequels.
-AITD_PakEdit allows to modify PAK file for AITD and FITD.
-
-License
--------
-
-FITD is distributed under the terms of the GNU General Public License
-as published by the Free Software Foundation; either version 2 of the
-License, or (at your option) any later version. A copy of this license 
-an be found in the file COPYING included with the source code of this
-program.
+```bash
+git clone https://github.com/Corbachu/DITD.git
+cd DITD
 
 
-*NIX version special notice:
-----------------------------
+### Configure the build (CMake)
 
-This version had music diseabled at the last second. The music is still
-enabled in the win32 build. If someone is interested to look for the
-exact issue under *nix, please drop me a mail.
-
-What is supported
------------------
-
-AITD1:
-      Should be completable. Saving and loading is supported,
-      but only one slot is available (the screen to select the
-      save position is not implemented). It's possible to load
-      a savegame from the original game, provided it's file is
-      named "save0.itd" (rename it if necessary). Like wise,
-      it is possible to load a FITD save in the original engine.
-      There is a big issue concerning the projectils. Basically,
-      guns, won't work, and throwing objects may produce strange
-      result. Save before throwing anything, as the object may
-      apprear in a wall...
-
-AITD2:
-      Supported but uncompletable. The introduction is buggy
-      due to a regression in the script engine. Hit 'esc' to skip
-      the intro (both parts) to bypass the bug .Save/load is
-      unsupported.
-
-JACK:
-      Supported but uncompletable.
-      Save/load is unsupported.
-
-AITD3:
-      Supported but uncompletable.
-      Save/load is unsupported.
-
-How to use FITD
----------------
-
-The depences are : qmake, sdl, sdl-mixer, glu, zlib
-Build (with qmake and make) and put the binary in the game
-data directory (where all the .pak files are) and start FITD.
-The CD version of AITD1 wasn't tested and may not work.
-
-Version 0.1 Authors
--------------------
-
-- Vincent Hamm "yaz0r" (yazoo@yaz0r.net)
-      Project leader and main programmer
-
-- Nicolas Noble "Pixel"
-      Cross platform issues. Helped understanding some
-      complex aspect of the 3d engine
+mkdir build-dc
+cd build-dc
+cmake .. -DCMAKE_TOOLCHAIN_FILE=../cmake/dreamcast.toolchain.cmake
 
 
-Greetings
----------
+The toolchain file sets the SH‑4 cross compiler, KOS include paths, GLdc include paths, SH‑4 optimization flags, and Dreamcast‑specific defines.
 
-- All the Alone in the Dark 1 team:
-      Frederick Raynal
-      Yael Barroz
-      Didier Chanfray
-      Philippe Vachey
-      Franck De Girolami
-      Jean-Marc Torroella
-      Hubert Chardot
-      Franck Manzetti
+Build
 
-- Laurent Paret, you know what for ;)
+make -j$(nproc)
 
-- Sebastien Viannay, maybe this project wouldn't
-      have existed without you...
 
-- All those I forgot....
+Artifacts produced
 
+• DITD.elf
+• DITD.bin (via scramble)
+• SPLASHX.mp3 (converted via make_disc.sh)
+• Optional CDI image (if your workflow includes mkdcdisc)
+
+
+### Running on real hardware
+
+Run DITD via:
+
+• Dreamcast SD adapter (untested)
+• GDEMU (untested)
+• MODE
+• Serial loader (dcload / dc-tool for development use only, not recommended for playback)
+• Burned CD‑R (development use not recommended, TESTED)
+
+
+DITD is validated on real Dreamcast hardware and common Dreamcast loaders.
+
+Desktop builds (unsupported)
+
+Desktop builds exist but have not been tested in the slightest, and those builds currently fail. Desktop builds are not authoritative for timing or final behavior.
+
+---
+
+FAQ — Dreamcast focused
+
+Is Dream in the Dark a standalone game?
+No. DITD is an engine. You must provide legally obtained AITD game data. The demo/preview release only contains demo/preview data assets. The front‑end includes art assets created by Isotope Softworks and fan renditions of soundtrack remixes with attribution included in the on‑disc PAK0.PAK.
+
+Why is the project called DITD and not FITD?
+DITD contains extensive Dreamcast‑specific refactors and non‑portable systems such as SH‑4 SIMD, libSH4simd, GLdc renderer integration, custom PhysFS, and dreamEDGE init. The architecture diverges significantly from upstream FITD.
+
+Is GLdc rewritten for this project?
+No. GLdc is used as provided. The FITD renderer and Dreamcast rendering paths were rewritten to target GLdc and the Dreamcast PVR.
+
+What audio formats are supported?
+MP3 playback for music and SFX is supported via XingMP3 (KOS‑ports libmp3). Supported MP3 format: 22 kHz, 128 kbps.
+
+Why is DITD Dreamcast‑first and non‑portable?
+DITD depends on SH‑4‑specific optimizations, Dreamcast timing, GLdc, KOS subsystems, and custom KOSPorts. These systems are deeply integrated and not portable without significant rework.
+
+Do you use AI tools to write the engine?
+GitHub Copilot is used responsibly for project organization, documentation, and debugging assistance only. All engine logic, Dreamcast backend code, renderer work, and SH‑4 optimizations are hand‑authored by the development team.
+
+Will DITD support AITD4 or New Nightmare?
+No. Those titles use different engines and are outside the scope of DITD.
+
+Does DITD require Dreamcast overclocking?
+No. DITD is designed to run on stock Dreamcast hardware.
+
+---
+
+Credits
+
+Original game credits
+
+• Alone in the Dark series — original game design and assets are the property of their respective rights holders
+• Frédérick Raynal and the original development team — acknowledged for the original game design and engine
+
+
+Core development (DITD)
+
+• Corbin “Corbachu” Annis — DITD / EDGE Programmer; lead developer of Dream in the Dark, DreamEDGE integration, FitdLib extensions, Dreamcast backend, renderer rewrite, archive system, and ADF language implementation
+• Vincent “yaz0r” Hamm — FITD Programmer; original reverse‑engineering work and foundational FITD engine research
+• Jmimu — FITD Programmer, Aitd‑PakEdit; engine research, tooling, and FITD behavior documentation
+• The FITD Team
+
+Tools and research
+
+• tigrouind — AITD‑Tools; creator of essential AITD tooling used for data extraction, analysis, and engine validation
+
+
+EDGE engine and contributors
+
+• EDGE Engine — platform layer used by DITD
+• Andrew Apted — EDGE Programmer; creator of the EDGE engine platform layer and COAL UI backend
+• The EDGE Team (1997–Present) — developers of EPI and related backends
+
+
+Third‑party libraries and ports
+
+• GLdc — Dreamcast GL implementation
+• KallistiOS (KOS) — Dreamcast OS and toolchain
+• XingMP3 (KOS‑ports libmp3) — MP3 decoding
+• stb_image (EPI‑wrapped) — image decoding
+• PhysFS 1.x (dreamEDGE KOSPorts) — virtual filesystem and archive support
+• SLADE3 — modern PAK/EPK/PK3 editor and lump manager
+
+
+Historical credits
+
+This project builds on decades of community research and tooling. Foundational contributors include early FITD reverse‑engineering researchers, AITD tooling authors, and Dreamcast homebrew community members. See CHANGELOG.md and CONTRIBUTORS.md for detailed historical credits.
+
+---
+
+License and legal
+
+DITD is an engine and does not include or distribute original AITD 1-3 game data. Users must supply legally obtained game assets. Third‑party libraries included or referenced are subject to their own licenses. 
+
+The provided DEMO CDI contains demo versions of AITD1, AITD2, and JITD, all of which are legally obtainable and free to distribute.
+
+---
+
+Contributing and contact
+
+Contributions, bug reports, and pull requests are welcome. Please follow CONTRIBUTING.md and CODE_OF_CONDUCT.md.
