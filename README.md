@@ -4,10 +4,9 @@
 
 # Dream in the Dark — DITD
 
-**(C) 2025-2026Isotope Softworks — assets inside PAK0 are (C) Isotope Softworks**  
-**(C) FITD Team
-**A modern, hardware‑accurate, and heavily extended source port of the Alone in the Dark AITD 1–3 engine — targeting the Sega Dreamcast.**
-
+**(C) 2025-2026 Isotope Softworks **  
+**(C) 2003-2026 FITD Team **
+**(C) The EDGE Team 1997-2026 **
 ---
 
 ## Overview
@@ -270,28 +269,29 @@ Artifacts produced
 • DITD.bin (via scramble)
 • SPLASHX.mp3 (converted via make_disc.sh)
 • Optional CDI image (if your workflow includes mkdcdisc)
-
+```
 
 ### Running on real hardware
 
 Run DITD via:
 
+• Burned CD‑R (development use not recommended, TESTED)
 • Dreamcast SD adapter (untested)
 • GDEMU (untested)
 • MODE
 • Serial loader (dcload / dc-tool for development use only, not recommended for playback)
-• Burned CD‑R (development use not recommended, TESTED)
+
 
 
 DITD is validated on real Dreamcast hardware and common Dreamcast loaders.
 
-Desktop builds (unsupported)
+### Desktop builds (unsupported)
 
 Desktop builds exist but have not been tested in the slightest, and those builds currently fail. Desktop builds are not authoritative for timing or final behavior.
 
 ---
 
-FAQ — Dreamcast focused
+## FAQ — Dreamcast focused
 
 Is Dream in the Dark a standalone game?
 No. DITD is an engine. You must provide legally obtained AITD game data. The demo/preview release only contains demo/preview data assets. The front‑end includes art assets created by Isotope Softworks and fan renditions of soundtrack remixes with attribution included in the on‑disc PAK0.PAK.
@@ -319,11 +319,11 @@ No. DITD is designed to run on stock Dreamcast hardware.
 
 ---
 
-Credits
+## Credits
 
 Original game credits
 
-• Alone in the Dark series — original game design and assets are the property of their respective rights holders
+• Alone in the Dark series — original game design and assets are the property of Infogrames and their respective rights holders
 • Frédérick Raynal and the original development team — acknowledged for the original game design and engine
 
 
@@ -348,7 +348,7 @@ EDGE engine and contributors
 
 Third‑party libraries and ports
 
-• GLdc — Dreamcast GL implementation
+• GLdc — Dreamcast GL implementation by Kazade
 • KallistiOS (KOS) — Dreamcast OS and toolchain
 • XingMP3 (KOS‑ports libmp3) — MP3 decoding
 • stb_image (EPI‑wrapped) — image decoding
@@ -362,7 +362,7 @@ This project builds on decades of community research and tooling. Foundational c
 
 ---
 
-License and legal
+## License and legal
 
 DITD is an engine and does not include or distribute original AITD 1-3 game data. Users must supply legally obtained game assets. Third‑party libraries included or referenced are subject to their own licenses. 
 
@@ -370,6 +370,8 @@ The provided DEMO CDI contains demo versions of AITD1, AITD2, and JITD, all of w
 
 ---
 
-Contributing and contact
+## Contributing and contact
 
 Contributions, bug reports, and pull requests are welcome. Please follow CONTRIBUTING.md and CODE_OF_CONDUCT.md.
+
+(C) Isotope Softworks
